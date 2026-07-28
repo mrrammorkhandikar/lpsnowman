@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Document Link</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+<body>
+    <h1>Document Link Test Page</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Direct Link</h2>
+        <p>Replace the UUID below with an actual document ID from your database:</p>
+        <input type="text" id="docId" placeholder="abc123-def456-..." style="width: 100%; padding: 8px;">
+        <br><br>
+        <button onclick="testDirectLink()">Test Direct Link</button>
+        <div id="result1" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 2: Window.open()</h2>
+        <button onclick="testWindowOpen()">Test window.open()</button>
+        <div id="result2" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 3: Fetch API</h2>
+        <button onclick="testFetch()">Test Fetch</button>
+        <div id="result3" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>Test 4: Check Backend Health</h2>
+        <button onclick="testBackend()">Test Backend</button>
+        <div id="result4" class="result"></div>
+    </div>
+
+    <script>
+        const baseUrl = window.location.origin;
+
+        function testDirectLink() {
+            const docId = document.getElementById('docId').value || 'test-document.pdf';
+            const url = `${baseUrl}/objects/uploads/${docId}`;
+            
+            document.getElementById('result1').innerHTML = `
+                <p>Opening: <a href="${url}" target="_blank">${url}</a></p>
+                <p>Click the link above to test</p>
+            `;
+        }
+
+        function testWindowOpen() {
+            const docId = document.getElementById('docId').value || 'test-document.pdf';
+            const url = `${baseUrl}/objects/uploads/${docId}`;
+            
+            document.getElementById('result2').innerHTML = `<p>Opening: ${url}</p>`;
+            
+            try {
+                const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
+                if (newWindow) {
+                    document.getElementById('result2').innerHTML += `<p class="success">✓ Window opened successfully</p>`;
+                } else {
+                    document.getElementById('result2').innerHTML += `<p class="error">✗ Popup blocked</p>`;
+                }
+            } catch (error) {
+                document.getElementById('result2').innerHTML += `<p class="error">✗ Error: ${error.message}</p>`;
+            }
+        }
+
+        async function testFetch() {
+            const docId = document.getElementById('docId').value || 'test-document.pdf';
+            const url = `${baseUrl}/objects/uploads/${docId}`;
+            
+            document.getElementById('result3').innerHTML = `<p>Fetching: ${url}</p>`;
+            
+            try {
+                const response = await fetch(url, {
+                    credentials: 'include'
+                });
+                
+                const resultDiv = document.getElementById('result3');
+                resultDiv.innerHTML += `<p>Status: ${response.status} ${response.statusText}</p>`;
+                
+                if (response.ok) {
+                    const contentType = response.headers.get('content-type');
+                    resultDiv.innerHTML += `<p class="success">✓ Document found!</p>`;
+                    resultDiv.innerHTML += `<p>Content-Type: ${contentType}</p>`;
+                    resultDiv.innerHTML += `<p>Size: ${response.headers.get('content-length')} bytes</p>`;
+                } else {
+                    const text = await response.text();
+                    resultDiv.innerHTML += `<p class="error">✗ Error: ${text}</p>`;
+                }
+            } catch (error) {
+                document.getElementById('result3').innerHTML += `<p class="error">✗ Network Error: ${error.message}</p>`;
+            }
+        }
+
+        async function testBackend() {
+            const healthUrl = `${baseUrl}/api/health`;
+            
+            document.getElementById('result4').innerHTML = `<p>Checking: ${healthUrl}</p>`;
+            
+            try {
+                const response = await fetch(healthUrl);
+                const data = await response.json();
+                
+                const resultDiv = document.getElementById('result4');
+                if (response.ok) {
+                    resultDiv.innerHTML += `<p class="success">✓ Backend is healthy</p>`;
+                    resultDiv.innerHTML += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                } else {
+                    resultDiv.innerHTML += `<p class="error">✗ Backend error: ${response.status}</p>`;
+                }
+            } catch (error) {
+                document.getElementById('result4').innerHTML += `<p class="error">✗ Cannot reach backend: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

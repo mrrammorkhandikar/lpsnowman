@@ -1,0 +1,16 @@
+export { default as CarrierDashboard } from "./dashboard";
+export { default as AddTruckPage } from "./add-truck";
+export { default as FleetPage } from "./fleet";
+export { default as CarrierLoadsPage } from "./loads";
+export { default as CarrierBidsPage } from "./bids";
+export { default as TripsPage } from "./trips";
+export { default as CarrierDocumentsPage } from "./documents";
+export { default as CarrierRevenuePage } from "./revenue";
+export { default as CarrierDriversPage } from "./drivers";
+export { default as CarrierHistoryPage } from "./history";
+export { default as CarrierShipmentsPage } from "./shipments";
+export { default as MyTruckPage } from "./my-truck";
+export { default as MyInfoPage } from "./my-info";
+export { default as MyDocumentsPage } from "./my-documents";
+export { default as CarrierOnboardingPage } from "./onboarding";
+export { default as CarrierMyOrdersPage } from "./my-orders";

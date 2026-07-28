@@ -1,0 +1,76 @@
+{
+  "drivers": [
+    {
+      "id": "driver-001",
+      "name": "Rajesh Kumar",
+      "phone": "9876543210",
+      "email": "rajesh@example.com",
+      "licenseNumber": "MH-01-AB-1234567",
+      "licenseExpiry": "2026-06-15",
+      "licenseImageUrl": null,
+      "aadhaarNumber": "1234567890123",
+      "aadhaarImageUrl": null,
+      "status": "available"
+    },
+    {
+      "id": "driver-002",
+      "name": "Amit Singh",
+      "phone": "9876543211",
+      "email": "amit@example.com",
+      "licenseNumber": "MH-02-CD-5678901",
+      "licenseExpiry": "2026-06-10",
+      "licenseImageUrl": null,
+      "aadhaarNumber": "2345678901234",
+      "aadhaarImageUrl": null,
+      "status": "on_trip"
+    },
+    {
+      "id": "driver-003",
+      "name": "Vikram Patel",
+      "phone": "9876543212",
+      "email": "vikram@example.com",
+      "licenseNumber": "GJ-03-EF-9012345",
+      "licenseExpiry": "2026-08-20",
+      "licenseImageUrl": null,
+      "aadhaarNumber": "3456789012345",
+      "aadhaarImageUrl": null,
+      "status": "available"
+    },
+    {
+      "id": "driver-004",
+      "name": "Suresh Kumar",
+      "phone": "9876543213",
+      "email": "suresh@example.com",
+      "licenseNumber": "TN-04-GH-3456789",
+      "licenseExpiry": "2026-05-28",
+      "licenseImageUrl": null,
+      "aadhaarNumber": "4567890123456",
+      "aadhaarImageUrl": null,
+      "status": "available"
+    },
+    {
+      "id": "driver-005",
+      "name": "Pradeep Singh",
+      "phone": "9876543214",
+      "email": "pradeep@example.com",
+      "licenseNumber": "UP-05-IJ-7890123",
+      "licenseExpiry": "2026-06-05",
+      "licenseImageUrl": null,
+      "aadhaarNumber": "5678901234567",
+      "aadhaarImageUrl": null,
+      "status": "on_trip"
+    },
+    {
+      "id": "driver-006",
+      "name": "Harish Verma",
+      "phone": "9876543215",
+      "email": "harish@example.com",
+      "licenseNumber": "KA-06-KL-2345678",
+      "licenseExpiry": "2026-07-12",
+      "licenseImageUrl": null,
+      "aadhaarNumber": "6789012345678",
+      "aadhaarImageUrl": null,
+      "status": "inactive"
+    }
+  ]
+}

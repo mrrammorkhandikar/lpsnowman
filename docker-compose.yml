@@ -1,0 +1,108 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: loadsmart
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./backend/docker/init/0000_extensions.sql:/docker-entrypoint-initdb.d/0000_extensions.sql
+      - ./backend/migrations/0000_confused_the_liberteens.sql:/docker-entrypoint-initdb.d/0001_schema.sql
+      - ./backend/docker/init/0002_session.sql:/docker-entrypoint-initdb.d/0002_session.sql
+      - ./backend/migrations/0002_surepass_kyc.sql:/docker-entrypoint-initdb.d/0003_surepass_kyc.sql
+      - ./backend/migrations/0003_triptrack_load.sql:/docker-entrypoint-initdb.d/0004_triptrack_load.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d loadsmart"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app_net
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 5000
+      DATABASE_URL: postgres://postgres:postgres@db:5432/loadsmart
+      DB_SSL: "false"
+      USE_LOCAL_OBJECT_STORAGE: "false"
+      ALLOW_UNAUTHENTICATED_UPLOADS: "true"
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SUREPASS_CLIENT_ID: ${SUREPASS_CLIENT_ID}
+      SUREPASS_CLIENT_PRIVATE_KEY: ${SUREPASS_CLIENT_PRIVATE_KEY}
+      SUREPASS_PUBLIC_KEY: ${SUREPASS_PUBLIC_KEY}
+      SUREPASS_API_TOKEN: ${SUREPASS_API_TOKEN}
+      SUREPASS_BASE_URL: ${SUREPASS_BASE_URL}
+      SUREPASS_KYC_BASE_URL: ${SUREPASS_KYC_BASE_URL:-https://kyc-api.surepass.app}
+      SUREPASS_PLAIN_BASE_URL: ${SUREPASS_PLAIN_BASE_URL:-https://kyc-api.surepass.app}
+      SUREPASS_RC_BASE_URL: ${SUREPASS_RC_BASE_URL:-https://kyc-api.surepass.app}
+      SUREPASS_ALLOW_PROXY: ${SUREPASS_ALLOW_PROXY:-false}
+      SUREPASS_TIMEOUT_MS: ${SUREPASS_TIMEOUT_MS}
+      AWS_BUCKET_NAME: ${AWS_BUCKET_NAME}
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_OBJECT_PREFIX: ${AWS_OBJECT_PREFIX}
+      INTUTRACK_BASE_URL: ${INTUTRACK_BASE_URL:-https://sct.intutrack.com/api/prod}
+      INTUTRACK_USERNAME: ${INTUTRACK_USERNAME}
+      INTUTRACK_PASSWORD: ${INTUTRACK_PASSWORD}
+      INTUTRACK_TIMEOUT: ${INTUTRACK_TIMEOUT:-120000}
+      # Proxy uploads (client → backend → S3) need more than the default 25s API cap on slow uplinks
+      UPLOAD_REQUEST_TIMEOUT_MS: ${UPLOAD_REQUEST_TIMEOUT_MS:-120000}
+    volumes:
+      - .:/workspace
+      - /workspace/backend/node_modules
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health',res=>process.exit(res.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app_net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NODE_ENV: ${NODE_ENV:-development}
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY}
+        VITE_GA_MEASUREMENT_ID: ${VITE_GA_MEASUREMENT_ID:-}
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      VITE_API_PROXY_TARGET: http://backend:5000
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - .:/workspace
+      - /workspace/frontend/node_modules
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5173',res=>process.exit(res.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app_net
+
+volumes:
+  db_data:
+
+networks:
+  app_net:
+
+

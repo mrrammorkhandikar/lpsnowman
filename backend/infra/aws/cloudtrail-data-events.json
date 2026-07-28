@@ -1,0 +1,20 @@
+{
+  "TrailName": "logistics-app-data-events",
+  "IsMultiRegionTrail": true,
+  "IncludeGlobalServiceEvents": true,
+  "IsOrganizationTrail": false,
+  "EventSelectors": [
+    {
+      "ReadWriteType": "All",
+      "IncludeManagementEvents": true,
+      "DataResources": [
+        {
+          "Type": "AWS::S3::Object",
+          "Values": [
+            "arn:aws:s3:::logistics-app-prod-documents/"
+          ]
+        }
+      ]
+    }
+  ]
+}

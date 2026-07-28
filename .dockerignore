@@ -1,0 +1,38 @@
+# Git & IDE
+.git
+.gitignore
+.cursor
+**/.vscode
+**/.idea
+
+# Dependencies (installed inside containers)
+**/node_modules
+**/npm-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+
+# Build outputs
+**/dist
+**/build
+**/.vite
+**/.turbo
+**/coverage
+
+# Env & secrets (injected via compose / runtime)
+**/.env
+**/.env.*
+!**/.env.example
+
+# OS junk
+**/.DS_Store
+**/Thumbs.db
+
+# Docker data
+db_data
+
+# Docs & misc (not needed in images)
+**/*.md
+!backend/docker/**
+
+# Agent / terminal logs
+terminals

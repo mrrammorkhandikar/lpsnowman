@@ -1,0 +1,64 @@
+{
+  "hash": "c1247b12",
+  "configHash": "ce06eeed",
+  "lockfileHash": "ca731c25",
+  "browserHash": "86a06848",
+  "optimized": {
+    "react-dom/client": {
+      "src": "../../node_modules/react-dom/client.js",
+      "file": "react-dom_client.js",
+      "fileHash": "2388f7f7",
+      "needsInterop": true
+    },
+    "i18next": {
+      "src": "../../node_modules/i18next/dist/esm/i18next.js",
+      "file": "i18next.js",
+      "fileHash": "ab6bf2f1",
+      "needsInterop": false
+    },
+    "react-i18next": {
+      "src": "../../node_modules/react-i18next/dist/es/index.js",
+      "file": "react-i18next.js",
+      "fileHash": "bcd1b0db",
+      "needsInterop": false
+    },
+    "i18next-browser-languagedetector": {
+      "src": "../../node_modules/i18next-browser-languagedetector/dist/esm/i18nextBrowserLanguageDetector.js",
+      "file": "i18next-browser-languagedetector.js",
+      "fileHash": "39f9bd6f",
+      "needsInterop": false
+    },
+    "react": {
+      "src": "../../node_modules/react/index.js",
+      "file": "react.js",
+      "fileHash": "26c85bc9",
+      "needsInterop": true
+    },
+    "wouter": {
+      "src": "../../node_modules/wouter/src/index.js",
+      "file": "wouter.js",
+      "fileHash": "e5237389",
+      "needsInterop": false
+    },
+    "@tanstack/react-query": {
+      "src": "../../node_modules/@tanstack/react-query/build/modern/index.js",
+      "file": "@tanstack_react-query.js",
+      "fileHash": "54f5418d",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-YUO4FF2Y": {
+      "file": "chunk-YUO4FF2Y.js"
+    },
+    "chunk-IKJ7VOVY": {
+      "file": "chunk-IKJ7VOVY.js"
+    },
+    "chunk-3EX3NYWH": {
+      "file": "chunk-3EX3NYWH.js"
+    },
+    "chunk-3O7X656O": {
+      "file": "chunk-3O7X656O.js"
+    }
+  }
+}

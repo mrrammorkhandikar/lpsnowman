@@ -1,0 +1,10 @@
+Deployment Trigger: 2026-02-27
+
+Changes:
+- Fixed routes.ts missing closing brace
+- Separated health checks into /health (liveness) and /ready (readiness)
+- Fixed S3 fetch with UUID-based file identifiers
+- Enhanced error logging for S3 operations
+- Added CORS headers for object serving
+
+Commit: Health check separation + S3 fetch fix

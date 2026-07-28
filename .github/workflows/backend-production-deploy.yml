@@ -1,0 +1,111 @@
+name: Production Deploy Backend (ECS)
+
+# Deployment triggered: 2026-02-24
+# Purpose: Deploy with environment variables (COOKIE_DOMAIN, FRONTEND_URL, SESSION_SECRET)
+# Expected: Session persistence and cookie configuration fixe
+
+on:
+  push:
+    branches:
+      - prod
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-production-deploy.yml'
+
+jobs:
+  deploy:
+    name: Build & Deploy Backend to AWS ECS
+    runs-on: ubuntu-latest
+    
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      ECR_REPOSITORY: logistics-backend
+      ECS_SERVICE: logistics-prod-backend-task-service-8k9hi761
+      ECS_CLUSTER: logistics-prod-ecs-cluster
+      ECS_TASK_DEFINITION: logistics-prod-backend-task
+      CONTAINER_NAME: logistics-backend
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      # Configure AWS
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_BACKEND_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_BACKEND_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      # Login to ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      # Unique image tag
+      - name: Extract Git SHA
+        id: vars
+        run: echo "IMAGE_TAG=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+      
+      # Build & Push Image
+      - name: Build, Tag & Push Docker Image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.vars.outputs.IMAGE_TAG }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f backend/Dockerfile .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+      
+      # Fetch Latest Task Definition from ECS
+      - name: Download Current Task Definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition $ECS_TASK_DEFINITION \
+            --query taskDefinition \
+            > task-definition.json
+      
+      # Clean AWS Read-Only Fields & Add Environment Variables
+      - name: Clean Task Definition JSON and Add Environment Variables
+        run: |
+          cat task-definition.json | \
+          jq 'del(
+            .taskDefinitionArn,
+            .revision,
+            .status,
+            .requiresAttributes,
+            .compatibilities,
+            .registeredAt,
+            .registeredBy
+          )' | \
+          jq 'walk(if type == "object" then del(.enableFaultInjection) else . end)' | \
+          jq '.containerDefinitions[0].environment += [
+            {"name": "NODE_ENV", "value": "production"},
+            {"name": "COOKIE_DOMAIN", "value": "${{ secrets.COOKIE_DOMAIN }}"},
+            {"name": "FRONTEND_URL", "value": "${{ secrets.FRONTEND_URL }}"},
+            {"name": "SESSION_SECRET", "value": "${{ secrets.SESSION_SECRET }}"},
+            {"name": "AWS_BUCKET_NAME", "value": "${{ secrets.AWS_BUCKET_NAME }}"},
+            {"name": "AWS_REGION", "value": "${{ secrets.AWS_REGION }}"},
+            {"name": "AWS_ACCESS_KEY_ID", "value": "${{ secrets.AWS_FRONTEND_ACCESS_KEY_ID }}"},
+            {"name": "AWS_SECRET_ACCESS_KEY", "value": "${{ secrets.AWS_FRONTEND_SECRET_ACCESS_KEY }}"},
+            {"name": "AWS_OBJECT_PREFIX", "value": "documents"}
+          ]' > clean-task-definition.json
+      
+      # Replace Image Only
+      - name: Render New Task Definition
+        id: render-task
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: clean-task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+      
+      # Deploy to ECS
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.render-task.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true   

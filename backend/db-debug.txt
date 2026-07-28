@@ -1,0 +1,5 @@
+Starting test-db.ts
+Loaded env
+Connecting to postgresql://postgres:****@localhost:5432/postgres?sslmode=no-verify
+SUCCESS: Connected
+Connection closed

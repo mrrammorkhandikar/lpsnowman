@@ -1,0 +1,8 @@
+Deployment Trigger: 2026-02-27
+
+Changes:
+- Redeploy to sync with backend health check updates
+- Ensure compatibility with new /ready endpoint
+- Verify S3 document fetch functionality
+
+Commit: Frontend redeploy for backend compatibility
