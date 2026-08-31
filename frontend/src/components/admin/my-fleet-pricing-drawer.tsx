@@ -676,11 +676,8 @@ export function MyFleetPricingDrawer({
         });
         await saveResponse.json();
 
-        const selectedDriver = assignableDrivers.find((c) => c.id === assignedCarrier);
-
         await apiRequest("POST", "/api/admin/assign", {
           load_id: load.id,
-          carrier_id: selectedDriver?.carrierId,
           driver_id: assignedCarrier,
           truck_id: assignedTruck,
           final_price: finalPrice.toString(),

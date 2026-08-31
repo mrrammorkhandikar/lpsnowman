@@ -1750,13 +1750,10 @@ export default function TripsPage() {
                     return;
                   }
 
-                  console.log("[CarrierTrips][UploadButton] Starting upload mutation...");
                   uploadMutation.mutate({
                     documentType: selectedDocType,
                     file: selectedFile,
                   });
-                  setUploadDialogOpen(false);
-                  setSelectedFile(null);
                 }}
                 disabled={uploadMutation.isPending || !selectedDocType || !selectedFile}
                 data-testid="button-confirm-upload"

@@ -26,6 +26,18 @@ import type { Load } from "@shared/schema";
 import { format } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
+type FleetPriceBreakdown = {
+  type?: string;
+  fuel?: number;
+  tolls?: number;
+  maintenance?: number;
+  miscellaneous?: number;
+  proratedSalaryPerTrip?: number;
+  totalTripCost?: number;
+  costPerKm?: number;
+  distance?: number;
+};
+
 type OrderLoad = Load & {
   shipperName?: string;
   shipperPhone?: string | null;
@@ -33,71 +45,40 @@ type OrderLoad = Load & {
   shipmentStatus?: string | null;
   assignedBy?: string;
   assignedAt?: string | Date;
+  priceBreakdown?: FleetPriceBreakdown | null;
 };
 
-// Dummy data for fallback when API is not available
-const DUMMY_ORDERS: OrderLoad[] = [
-  {
-    id: "dummy-1",
-    status: "in_transit",
-    finalPrice: "15000" as any,
-    pickupCity: "Mumbai",
-    pickupAddress: "Port Authority, Mumbai",
-    dropoffCity: "Delhi",
-    dropoffAddress: "Industrial Area, Delhi",
-    pickupDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-    deliveryDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-    requiredTruckType: "20ft Container",
-    weight: "18" as any,
-    goodsToBeCarried: "Electronics",
-    shipperName: "Tech Exports Ltd",
-    shipperPhone: "+91-9876543210",
-    adminReferenceNumber: 1,
-    carrierAdvancePercent: 30 as any,
-    assignedAt: new Date(),
-    assignedBy: "Admin User",
-  } as OrderLoad,
-  {
-    id: "dummy-2",
-    status: "awarded",
-    finalPrice: "12000" as any,
-    pickupCity: "Bangalore",
-    pickupAddress: "Warehouse Complex, Bangalore",
-    dropoffCity: "Chennai",
-    dropoffAddress: "Port Terminal, Chennai",
-    pickupDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
-    deliveryDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
-    requiredTruckType: "32ft Trailer",
-    weight: "25" as any,
-    goodsToBeCarried: "Textiles",
-    shipperName: "Fabric Industries",
-    shipperPhone: "+91-8765432109",
-    adminReferenceNumber: 2,
-    carrierAdvancePercent: 25 as any,
-    assignedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-    assignedBy: "Admin User",
-  } as OrderLoad,
-  {
-    id: "dummy-3",
-    status: "delivered",
-    finalPrice: "18000" as any,
-    pickupCity: "Pune",
-    pickupAddress: "Industrial Park, Pune",
-    dropoffCity: "Hyderabad",
-    dropoffAddress: "Distribution Center, Hyderabad",
-    pickupDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
-    deliveryDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-    requiredTruckType: "20ft Container",
-    weight: "20" as any,
-    goodsToBeCarried: "Machinery",
-    shipperName: "Manufacturing Co",
-    shipperPhone: "+91-7654321098",
-    adminReferenceNumber: 3,
-    carrierAdvancePercent: 40 as any,
-    assignedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
-    assignedBy: "Admin User",
-  } as OrderLoad,
-];
+function alreadyInAddress(full: string | null | undefined, part: string | null | undefined): boolean {
+  if (!full || !part) return false;
+  const hay = full.toLowerCase();
+  const needle = part.trim().toLowerCase();
+  if (!needle) return true;
+  if (hay.includes(needle)) return true;
+  const aliases: Record<string, string[]> = {
+    mh: ["maharashtra"],
+    dl: ["delhi"],
+    ka: ["karnataka"],
+    tn: ["tamil nadu"],
+    ts: ["telangana"],
+    ap: ["andhra pradesh"],
+    gj: ["gujarat"],
+    rj: ["rajasthan"],
+    up: ["uttar pradesh"],
+    wb: ["west bengal"],
+    mp: ["madhya pradesh"],
+    hr: ["haryana"],
+    pb: ["punjab"],
+    kl: ["kerala"],
+    or: ["odisha", "orissa"],
+    br: ["bihar"],
+  };
+  return (aliases[needle] || []).some((alias) => hay.includes(alias));
+}
+
+function formatMoney(amount: number | null | undefined): string | null {
+  if (amount == null || Number.isNaN(Number(amount))) return null;
+  return formatCurrency(Number(amount));
+}
 
 function formatCurrency(amount: number): string {
   return `Rs. ${amount.toLocaleString("en-IN")}`;
@@ -158,6 +139,15 @@ function OrderDetailSheet({ order, open, onClose }: { order: OrderLoad | null; o
   const price = parseFloat(order.finalPrice || "0");
   const carrierAdvPct = Number(order.carrierAdvancePercent || 0);
   const carrierAdvAmt = carrierAdvPct > 0 ? Math.round(price * carrierAdvPct / 100) : 0;
+  const breakdown = order.priceBreakdown;
+  const hasFleetCosts =
+    !!breakdown &&
+    (breakdown.type === "my_fleet" ||
+      breakdown.totalTripCost != null ||
+      breakdown.fuel != null ||
+      breakdown.costPerKm != null);
+  const tripDistanceKm =
+    Number(breakdown?.distance ?? order.distance ?? 0) || 0;
 
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -201,11 +191,20 @@ function OrderDetailSheet({ order, open, onClose }: { order: OrderLoad | null; o
                     </div>
                     <div className="flex-1 pb-2 min-w-0">
                       <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Pickup</p>
+                      {order.pickupBusinessName && (
+                        <p className="text-sm font-semibold break-words">{order.pickupBusinessName}</p>
+                      )}
                       <p className="text-sm font-semibold break-words">{order.pickupCity || "---"}</p>
                       {order.pickupAddress && <p className="text-xs text-muted-foreground break-words">{order.pickupAddress}</p>}
-                      {order.pickupLocality && <p className="text-xs text-muted-foreground break-words">{order.pickupLocality}</p>}
-                      {order.pickupState && <p className="text-xs text-muted-foreground">{order.pickupState}</p>}
-                      {order.pickupLandmark && <p className="text-xs text-muted-foreground italic break-words">Near: {order.pickupLandmark}</p>}
+                      {order.pickupLocality && !alreadyInAddress(order.pickupAddress, order.pickupLocality) && (
+                        <p className="text-xs text-muted-foreground break-words">{order.pickupLocality}</p>
+                      )}
+                      {order.pickupState && !alreadyInAddress(order.pickupAddress, order.pickupState) && (
+                        <p className="text-xs text-muted-foreground">{order.pickupState}</p>
+                      )}
+                      {order.pickupLandmark && !alreadyInAddress(order.pickupAddress, order.pickupLandmark) && (
+                        <p className="text-xs text-muted-foreground italic break-words">Near: {order.pickupLandmark}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-3">
@@ -214,12 +213,20 @@ function OrderDetailSheet({ order, open, onClose }: { order: OrderLoad | null; o
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Drop</p>
+                      {order.dropoffBusinessName && (
+                        <p className="text-sm font-semibold break-words">{order.dropoffBusinessName}</p>
+                      )}
                       <p className="text-sm font-semibold break-words">{order.dropoffCity || "---"}</p>
                       {order.dropoffAddress && <p className="text-xs text-muted-foreground break-words">{order.dropoffAddress}</p>}
-                      {order.dropoffLocality && <p className="text-xs text-muted-foreground break-words">{order.dropoffLocality}</p>}
-                      {order.dropoffState && <p className="text-xs text-muted-foreground">{order.dropoffState}</p>}
-                      {order.dropoffLandmark && <p className="text-xs text-muted-foreground italic break-words">Near: {order.dropoffLandmark}</p>}
-                      {order.dropoffBusinessName && <p className="text-xs text-muted-foreground break-words">Business: {order.dropoffBusinessName}</p>}
+                      {order.dropoffLocality && !alreadyInAddress(order.dropoffAddress, order.dropoffLocality) && (
+                        <p className="text-xs text-muted-foreground break-words">{order.dropoffLocality}</p>
+                      )}
+                      {order.dropoffState && !alreadyInAddress(order.dropoffAddress, order.dropoffState) && (
+                        <p className="text-xs text-muted-foreground">{order.dropoffState}</p>
+                      )}
+                      {order.dropoffLandmark && !alreadyInAddress(order.dropoffAddress, order.dropoffLandmark) && (
+                        <p className="text-xs text-muted-foreground italic break-words">Near: {order.dropoffLandmark}</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -356,65 +363,87 @@ function OrderDetailSheet({ order, open, onClose }: { order: OrderLoad | null; o
                 </div>
               )}
 
-              {/* Carrier Expenses Section */}
-              <div className="rounded-lg border bg-card p-3 sm:p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Truck className="h-4 w-4 text-primary" />
-                  <h3 className="text-sm font-semibold">Carrier Expenses</h3>
+              {hasFleetCosts && (
+                <div className="rounded-lg border bg-card p-3 sm:p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Truck className="h-4 w-4 text-primary" />
+                    <h3 className="text-sm font-semibold">Trip Costs</h3>
+                  </div>
+                  <div className="space-y-2">
+                    {formatMoney(breakdown?.fuel) && (
+                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
+                        <span className="text-sm text-muted-foreground">Fuel</span>
+                        <span className="text-sm font-medium">{formatMoney(breakdown?.fuel)}</span>
+                      </div>
+                    )}
+                    {formatMoney(breakdown?.tolls) && (
+                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
+                        <span className="text-sm text-muted-foreground">Tolls</span>
+                        <span className="text-sm font-medium">{formatMoney(breakdown?.tolls)}</span>
+                      </div>
+                    )}
+                    {formatMoney(breakdown?.proratedSalaryPerTrip) && (
+                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
+                        <span className="text-sm text-muted-foreground">Driver Pay</span>
+                        <span className="text-sm font-medium">{formatMoney(breakdown?.proratedSalaryPerTrip)}</span>
+                      </div>
+                    )}
+                    {formatMoney(breakdown?.maintenance) && (
+                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
+                        <span className="text-sm text-muted-foreground">Maintenance</span>
+                        <span className="text-sm font-medium">{formatMoney(breakdown?.maintenance)}</span>
+                      </div>
+                    )}
+                    {formatMoney(breakdown?.miscellaneous) && (
+                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
+                        <span className="text-sm text-muted-foreground">Miscellaneous</span>
+                        <span className="text-sm font-medium">{formatMoney(breakdown?.miscellaneous)}</span>
+                      </div>
+                    )}
+                    {formatMoney(breakdown?.totalTripCost) && (
+                      <div className="pt-2 border-t">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">Total Expenses</span>
+                          <span className="text-sm font-bold">{formatMoney(breakdown?.totalTripCost)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                    <span className="text-sm text-muted-foreground">Fuel</span>
-                    <span className="text-sm font-medium">Rs. 5000</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                    <span className="text-sm text-muted-foreground">Tolls</span>
-                    <span className="text-sm font-medium">Rs. 2300</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                    <span className="text-sm text-muted-foreground">Driver Pay</span>
-                    <span className="text-sm font-medium">Rs. 8000</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                    <span className="text-sm text-muted-foreground">Maintenance</span>
-                    <span className="text-sm font-medium">Rs. 4500</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                    <span className="text-sm text-muted-foreground">Miscellaneous</span>
-                    <span className="text-sm font-medium">Rs. 2500</span>
-                  </div>
-                  <div className="pt-2 border-t">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Total Expenses</span>
-                      <span className="text-sm font-bold">Rs. 22300</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              )}
 
-              {/* Cost Per KM Section */}
-              <div className="rounded-lg border bg-card p-3 sm:p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <DollarSign className="h-4 w-4 text-primary" />
-                  <h3 className="text-sm font-semibold">Cost Per KM</h3>
+              {hasFleetCosts && (tripDistanceKm > 0 || breakdown?.costPerKm != null) && (
+                <div className="rounded-lg border bg-card p-3 sm:p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <DollarSign className="h-4 w-4 text-primary" />
+                    <h3 className="text-sm font-semibold">Cost Per KM</h3>
+                  </div>
+                  <div className="space-y-2">
+                    {formatMoney(breakdown?.totalTripCost) && (
+                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
+                        <span className="text-sm text-muted-foreground">Total Expenses</span>
+                        <span className="text-sm font-medium">{formatMoney(breakdown?.totalTripCost)}</span>
+                      </div>
+                    )}
+                    {tripDistanceKm > 0 && (
+                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
+                        <span className="text-sm text-muted-foreground">Distance</span>
+                        <span className="text-sm font-medium">{tripDistanceKm} KM</span>
+                      </div>
+                    )}
+                    {breakdown?.costPerKm != null && (
+                      <div className="pt-2 border-t">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">Cost Per KM</span>
+                          <span className="text-sm font-bold text-primary">
+                            Rs. {Number(breakdown.costPerKm).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                    <span className="text-sm text-muted-foreground">Total Expenses</span>
-                    <span className="text-sm font-medium">Rs. 22300</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                    <span className="text-sm text-muted-foreground">Distance</span>
-                    <span className="text-sm font-medium">600 KM</span>
-                  </div>
-                  <div className="pt-2 border-t">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">Cost Per KM</span>
-                      <span className="text-sm font-bold text-primary">Rs. 37.17</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              )}
 
             </div>
           </ScrollArea>

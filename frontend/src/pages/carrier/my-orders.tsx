@@ -36,6 +36,33 @@ type OrderLoad = Load & {
   assignedAt?: string | Date;
 };
 
+function alreadyInAddress(full: string | null | undefined, part: string | null | undefined): boolean {
+  if (!full || !part) return false;
+  const hay = full.toLowerCase();
+  const needle = part.trim().toLowerCase();
+  if (!needle) return true;
+  if (hay.includes(needle)) return true;
+  const aliases: Record<string, string[]> = {
+    mh: ["maharashtra"],
+    dl: ["delhi"],
+    ka: ["karnataka"],
+    tn: ["tamil nadu"],
+    ts: ["telangana"],
+    ap: ["andhra pradesh"],
+    gj: ["gujarat"],
+    rj: ["rajasthan"],
+    up: ["uttar pradesh"],
+    wb: ["west bengal"],
+    mp: ["madhya pradesh"],
+    hr: ["haryana"],
+    pb: ["punjab"],
+    kl: ["kerala"],
+    or: ["odisha", "orissa"],
+    br: ["bihar"],
+  };
+  return (aliases[needle] || []).some((alias) => hay.includes(alias));
+}
+
 function formatCurrency(amount: number): string {
   return `Rs. ${amount.toLocaleString("en-IN")}`;
 }
@@ -138,11 +165,20 @@ function OrderDetailSheet({ order, open, onClose }: { order: OrderLoad | null; o
                     </div>
                     <div className="flex-1 pb-2 min-w-0">
                       <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Pickup</p>
+                      {order.pickupBusinessName && (
+                        <p className="text-sm font-semibold break-words">{order.pickupBusinessName}</p>
+                      )}
                       <p className="text-sm font-semibold break-words">{order.pickupCity || "---"}</p>
                       {order.pickupAddress && <p className="text-xs text-muted-foreground break-words">{order.pickupAddress}</p>}
-                      {order.pickupLocality && <p className="text-xs text-muted-foreground break-words">{order.pickupLocality}</p>}
-                      {order.pickupState && <p className="text-xs text-muted-foreground">{order.pickupState}</p>}
-                      {order.pickupLandmark && <p className="text-xs text-muted-foreground italic break-words">Near: {order.pickupLandmark}</p>}
+                      {order.pickupLocality && !alreadyInAddress(order.pickupAddress, order.pickupLocality) && (
+                        <p className="text-xs text-muted-foreground break-words">{order.pickupLocality}</p>
+                      )}
+                      {order.pickupState && !alreadyInAddress(order.pickupAddress, order.pickupState) && (
+                        <p className="text-xs text-muted-foreground">{order.pickupState}</p>
+                      )}
+                      {order.pickupLandmark && !alreadyInAddress(order.pickupAddress, order.pickupLandmark) && (
+                        <p className="text-xs text-muted-foreground italic break-words">Near: {order.pickupLandmark}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-3">
@@ -151,12 +187,20 @@ function OrderDetailSheet({ order, open, onClose }: { order: OrderLoad | null; o
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Drop</p>
+                      {order.dropoffBusinessName && (
+                        <p className="text-sm font-semibold break-words">{order.dropoffBusinessName}</p>
+                      )}
                       <p className="text-sm font-semibold break-words">{order.dropoffCity || "---"}</p>
                       {order.dropoffAddress && <p className="text-xs text-muted-foreground break-words">{order.dropoffAddress}</p>}
-                      {order.dropoffLocality && <p className="text-xs text-muted-foreground break-words">{order.dropoffLocality}</p>}
-                      {order.dropoffState && <p className="text-xs text-muted-foreground">{order.dropoffState}</p>}
-                      {order.dropoffLandmark && <p className="text-xs text-muted-foreground italic break-words">Near: {order.dropoffLandmark}</p>}
-                      {order.dropoffBusinessName && <p className="text-xs text-muted-foreground break-words">Business: {order.dropoffBusinessName}</p>}
+                      {order.dropoffLocality && !alreadyInAddress(order.dropoffAddress, order.dropoffLocality) && (
+                        <p className="text-xs text-muted-foreground break-words">{order.dropoffLocality}</p>
+                      )}
+                      {order.dropoffState && !alreadyInAddress(order.dropoffAddress, order.dropoffState) && (
+                        <p className="text-xs text-muted-foreground">{order.dropoffState}</p>
+                      )}
+                      {order.dropoffLandmark && !alreadyInAddress(order.dropoffAddress, order.dropoffLandmark) && (
+                        <p className="text-xs text-muted-foreground italic break-words">Near: {order.dropoffLandmark}</p>
+                      )}
                     </div>
                   </div>
                 </div>

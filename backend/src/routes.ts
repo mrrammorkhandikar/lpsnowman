@@ -162,6 +162,11 @@ async function userCanAccessShipment(user: User, shipment: Shipment): Promise<bo
   return false;
 }
 
+/** Marketplace carriers are users.role === "carrier". Admin-owned My Fleet assets use admin/driver ids. */
+function isMarketplaceCarrierRole(role: string | null | undefined): boolean {
+  return role === "carrier";
+}
+
 declare module 'express-serve-static-core' {
   interface Request {
     session?: any;
@@ -4170,6 +4175,8 @@ export async function registerRoutes(
         "loading_photos",
         "invoice",
         "weighment_slip",
+        "receipts",
+        "receipt",
         "other",
       ]);
 
@@ -7838,65 +7845,79 @@ RESPOND IN THIS EXACT JSON FORMAT:
         return res.status(404).json({ error: "Load not found" });
       }
 
-      let resolvedCarrierId = carrier_id as string | undefined;
+      const requestedCarrierId =
+        carrier_id && carrier_id !== "unassigned" ? String(carrier_id) : undefined;
       let resolvedDriverId = driver_id && driver_id !== "unassigned" ? driver_id : null;
       let resolvedTruckId = truck_id || null;
+      const assignedDriver = resolvedDriverId ? await storage.getDriver(resolvedDriverId) : undefined;
 
-      // My Fleet: resolve carrier/truck from driver when admin assigns own fleet
-      if (resolvedDriverId) {
-        const driver = await storage.getDriver(resolvedDriverId);
-        if (!driver) {
-          return res.status(400).json({ error: "Driver not found" });
-        }
-        if (resolvedCarrierId && driver.carrierId !== resolvedCarrierId) {
-          return res.status(400).json({ error: "Driver does not belong to the selected carrier" });
-        }
-        resolvedCarrierId = driver.carrierId;
-        if (!resolvedTruckId && driver.assignedTruckId) {
-          resolvedTruckId = driver.assignedTruckId;
-        }
+      if (resolvedDriverId && !assignedDriver) {
+        return res.status(400).json({ error: "Driver not found" });
       }
 
-      if (!resolvedCarrierId) {
+      if (!resolvedTruckId && assignedDriver?.assignedTruckId) {
+        resolvedTruckId = assignedDriver.assignedTruckId;
+      }
+
+      const ownerId = assignedDriver?.carrierId || requestedCarrierId;
+      if (!ownerId) {
         return res.status(400).json({ error: "carrier_id or driver_id is required" });
       }
 
-      const carrier = await storage.getUser(resolvedCarrierId);
-      if (!carrier) {
-        return res.status(404).json({ error: "Carrier not found" });
+      const owner = await storage.getUser(ownerId);
+      // My Fleet drawer assigns admin drivers/trucks. Their carrier_id is the admin (or a driver login),
+      // not a marketplace carrier user — that used to 404 as "Carrier not found".
+      const isMyFleetAssignment = !isMarketplaceCarrierRole(owner?.role);
+
+      if (!isMyFleetAssignment) {
+        if (assignedDriver && assignedDriver.carrierId !== ownerId) {
+          return res.status(400).json({ error: "Driver does not belong to the selected carrier" });
+        }
       }
 
-      const isMyFleetAssignment = carrier.id === user.id && carrier.role === "admin";
-      if (!isMyFleetAssignment && carrier.role !== "carrier") {
+      const resolvedCarrierId = isMyFleetAssignment ? user.id : ownerId;
+      const carrier = isMyFleetAssignment ? user : owner;
+      if (!carrier) {
         return res.status(404).json({ error: "Carrier not found" });
       }
 
       if (resolvedTruckId) {
         const truck = await storage.getTruck(resolvedTruckId);
-        if (!truck || truck.carrierId !== resolvedCarrierId) {
+        if (!truck) {
+          return res.status(400).json({ error: "Truck not found or does not belong to the selected carrier" });
+        }
+        if (isMyFleetAssignment) {
+          const truckOwner = await storage.getUser(truck.carrierId);
+          const truckOnAdminFleet =
+            truck.carrierId === user.id ||
+            truck.carrierId === assignedDriver?.carrierId ||
+            !truckOwner ||
+            truckOwner.role === "admin" ||
+            truckOwner.role === "driver";
+          if (!truckOnAdminFleet) {
+            return res.status(400).json({ error: "Truck not found or does not belong to the selected carrier" });
+          }
+        } else if (truck.carrierId !== resolvedCarrierId) {
           return res.status(400).json({ error: "Truck not found or does not belong to the selected carrier" });
         }
       }
 
-      if (resolvedDriverId) {
-        const driver = await storage.getDriver(resolvedDriverId);
-        if (!driver || driver.carrierId !== resolvedCarrierId) {
-          return res.status(400).json({ error: "Driver not found or does not belong to the selected carrier" });
-        }
-      }
-
-      const carrierShipments = await storage.getShipmentsByCarrier(resolvedCarrierId);
-      const carrierBids = await storage.getBidsByCarrier(resolvedCarrierId);
-      const fleetAvailability = buildFleetAvailabilityContext(carrierShipments, carrierBids);
+      const availabilityShipments = isMyFleetAssignment
+        ? await storage.getAllShipments()
+        : await storage.getShipmentsByCarrier(resolvedCarrierId);
+      const availabilityBids = isMyFleetAssignment
+        ? await storage.getAllBids()
+        : await storage.getBidsByCarrier(resolvedCarrierId);
+      const fleetAvailability = buildFleetAvailabilityContext(availabilityShipments, availabilityBids);
 
       if (resolvedTruckId && !isTruckFleetAvailable(resolvedTruckId, fleetAvailability)) {
-        const blockingShipment = carrierShipments.find(
+        const blockingShipment = availabilityShipments.find(
           (s) =>
             s.truckId === resolvedTruckId &&
             !FLEET_TERMINAL_SHIPMENT_STATUSES.includes((s.status || "") as typeof FLEET_TERMINAL_SHIPMENT_STATUSES[number]),
         );
         const blockingBid = findBlockingAcceptedBidForTruck(
-          carrierBids,
+          availabilityBids,
           resolvedTruckId,
           fleetAvailability.loadsWithCompletedShipments,
         );
@@ -7908,13 +7929,13 @@ RESPOND IN THIS EXACT JSON FORMAT:
       }
 
       if (resolvedDriverId && !isDriverFleetAvailable(resolvedDriverId, fleetAvailability)) {
-        const blockingShipment = carrierShipments.find(
+        const blockingShipment = availabilityShipments.find(
           (s) =>
             s.driverId === resolvedDriverId &&
             !FLEET_TERMINAL_SHIPMENT_STATUSES.includes((s.status || "") as typeof FLEET_TERMINAL_SHIPMENT_STATUSES[number]),
         );
         const blockingBid = findBlockingAcceptedBidForDriver(
-          carrierBids,
+          availabilityBids,
           resolvedDriverId,
           fleetAvailability.loadsWithCompletedShipments,
         );
@@ -7935,7 +7956,6 @@ RESPOND IN THIS EXACT JSON FORMAT:
       const carrierPayout = final_price || adminPricing?.payoutEstimate || load.finalPrice;
       const suggestedPrice = adminPricing?.suggestedPrice || load.adminSuggestedPrice || adminFinalPrice;
 
-      const assignedDriver = resolvedDriverId ? await storage.getDriver(resolvedDriverId) : undefined;
       const assigneeLabel = isMyFleetAssignment
         ? assignedDriver?.name || "admin fleet"
         : carrier.companyName || carrier.username;
@@ -16263,8 +16283,18 @@ RESPOND IN THIS EXACT JSON FORMAT:
         return res.status(400).json({ error: "Document type, file name, and file URL are required" });
       }
 
-      const validShipmentDocTypes = ["lr_consignment", "eway_bill", "loading_photos", "pod", "invoice", "other"];
-      if (!validShipmentDocTypes.includes(documentType)) {
+      const validShipmentDocTypes = [
+        "lr_consignment",
+        "eway_bill",
+        "loading_photos",
+        "pod",
+        "invoice",
+        "receipts",
+        "receipt",
+        "other",
+      ];
+      const normalizedType = documentType === "receipt" ? "receipts" : documentType;
+      if (!validShipmentDocTypes.includes(normalizedType) && !validShipmentDocTypes.includes(documentType)) {
         return res.status(400).json({ error: "Invalid document type" });
       }
 
@@ -16286,7 +16316,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
         userId: user.id,
         loadId: shipment.loadId,
         shipmentId: shipment.id,
-        documentType,
+        documentType: normalizedType,
         fileName,
         fileUrl,
         fileSize: fileSize ?? 0,
