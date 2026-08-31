@@ -61,6 +61,10 @@ interface LoadData {
   weightUnit?: string;
   requiredTruckType: string;
   distance?: number | string;
+  pickupLat?: string | number | null;
+  pickupLng?: string | number | null;
+  dropoffLat?: string | number | null;
+  dropoffLng?: string | number | null;
   pickupDate?: string | Date;
   shipperId?: string;
   shipperName?: string;
@@ -205,6 +209,7 @@ export function MyFleetPricingDrawer({
     make?: string;
     model?: string;
     isAvailable?: boolean;
+    carrierId?: string | null;
   }
 
   // Pricing intelligence data
@@ -231,10 +236,24 @@ export function MyFleetPricingDrawer({
     return source.filter((d) => d.isAvailable !== false);
   }, [carriers]);
 
-  const assignableTrucks = useMemo(
-    () => fleetTrucks.filter((t) => t.isAvailable !== false),
-    [fleetTrucks],
-  );
+  const assignableTrucks = useMemo(() => {
+    const available = fleetTrucks.filter((t) => t.isAvailable !== false);
+    const selectedDriver = assignableDrivers.find((d) => d.id === assignedCarrier);
+    if (selectedDriver?.carrierId) {
+      const matching = available.filter(
+        (t) => !t.carrierId || t.carrierId === selectedDriver.carrierId,
+      );
+      if (matching.length > 0) return matching;
+    }
+    const fleetCarrierIds = new Set(
+      assignableDrivers.map((d) => d.carrierId).filter((id): id is string => Boolean(id)),
+    );
+    if (fleetCarrierIds.size > 0) {
+      const fleetOnly = available.filter((t) => t.carrierId && fleetCarrierIds.has(t.carrierId));
+      if (fleetOnly.length > 0) return fleetOnly;
+    }
+    return available;
+  }, [fleetTrucks, assignableDrivers, assignedCarrier]);
   
   // Get the invoice price for shipper - use adminFinalPrice (shipper's gross price)
   // NOT finalPrice which is carrier payout after platform margin deduction
@@ -365,9 +384,7 @@ export function MyFleetPricingDrawer({
   const handleDriverChange = (driverId: string) => {
     setAssignedCarrier(driverId);
     const driver = assignableDrivers.find((d) => d.id === driverId);
-    if (driver?.assignedTruckId) {
-      setAssignedTruck(driver.assignedTruckId);
-    }
+    setAssignedTruck(driver?.assignedTruckId || "");
   };
 
   // Reset per-ton state when load changes
@@ -504,11 +521,14 @@ export function MyFleetPricingDrawer({
       // Only set gross price if shipper didn't provide their own price
       if (!hasShipperPrice) {
         setGrossPrice(data.suggested_price);
+        if (typeof data.platform_rate_percent === "number") {
+          setPlatformMarginPercent(data.platform_rate_percent);
+          setMarginInputStr(String(data.platform_rate_percent));
+        }
       }
       setBreakdown(data.breakdown);
       setParams(data.params);
       setConfidenceScore(data.confidence_score);
-      setPlatformMarginPercent(data.platform_rate_percent);
     } catch (error) {
       console.error("Failed to fetch suggested price:", error);
       const parsedStored = parseFloat(load.distance?.toString() || "");
@@ -641,7 +661,7 @@ export function MyFleetPricingDrawer({
       if (postMode === "assign") {
         const saveResponse = await apiRequest("POST", "/api/admin/pricing/save", {
           load_id: load.id,
-          suggested_price: suggestedPrice,
+          suggested_price: suggestedPrice || grossPrice,
           gross_price: grossPrice,
           final_price: grossPrice,
           carrier_payout: finalPrice,
@@ -650,23 +670,22 @@ export function MyFleetPricingDrawer({
           discount_amount: discountAmount,
           platform_margin_percent: platformMarginPercent,
           advance_payment_percent: advancePaymentPercent,
-          notes: pricingNotes,
+          notes: pricingNotes || notes || null,
           template_id: selectedTemplate || null,
+          price_breakdown: buildFleetPriceBreakdown(),
         });
         await saveResponse.json();
 
         const selectedDriver = assignableDrivers.find((c) => c.id === assignedCarrier);
-        if (!selectedDriver?.carrierId) {
-          throw new Error("Selected driver is missing fleet carrier information");
-        }
 
         await apiRequest("POST", "/api/admin/assign", {
           load_id: load.id,
-          carrier_id: selectedDriver.carrierId,
+          carrier_id: selectedDriver?.carrierId,
           driver_id: assignedCarrier,
           truck_id: assignedTruck,
           final_price: finalPrice.toString(),
           gross_price: grossPrice.toString(),
+          price_breakdown: buildFleetPriceBreakdown(),
         });
 
         const selectedDriverName = assignableDrivers.find(c => c.id === assignedCarrier)?.name || "driver";
@@ -769,101 +788,89 @@ export function MyFleetPricingDrawer({
     }
   }, [open, assignableDrivers, assignableTrucks, assignedCarrier, assignedTruck]);
 
-  // My Fleet state variables
+  // My Fleet cost inputs
   const [distance, setDistance] = useState<number>(0);
   const [monthlySalary, setMonthlySalary] = useState<number>(0);
   const [tripsPerMonth, setTripsPerMonth] = useState<number>(0);
-  const [proratedSalaryPerTrip, setProratedSalaryPerTrip] = useState<number>(0);
   const [fuel, setFuel] = useState<number>(0);
   const [tolls, setTolls] = useState<number>(0);
   const [maintenance, setMaintenance] = useState<number>(0);
   const [miscellaneous, setMiscellaneous] = useState<number>(0);
   const [monthlyDepreciation, setMonthlyDepreciation] = useState<number>(0);
   const [monthlyOverhead, setMonthlyOverhead] = useState<number>(0);
-  const [proratedPerTrip, setProratedPerTrip] = useState<number>(0);
-  const [totalTripCost, setTotalTripCost] = useState<number>(0);
-  const [costPerKm, setCostPerKm] = useState<number>(0);
-  const [profitMarginPercent, setProfitMarginPercent] = useState<number>(0);
-  const [netProfitLoss, setNetProfitLoss] = useState<number>(0);
   const [notes, setNotes] = useState("");
 
-  // Sync shipper price with gross price - they should always be the same
-  const shipperPrice = grossPrice;
+  const proratedSalaryPerTrip = tripsPerMonth > 0 ? monthlySalary / tripsPerMonth : 0;
+  const proratedPerTrip = tripsPerMonth > 0
+    ? (monthlyDepreciation + monthlyOverhead) / tripsPerMonth
+    : 0;
+  const totalTripCost =
+    proratedSalaryPerTrip + fuel + tolls + maintenance + miscellaneous + proratedPerTrip;
+  const costPerKm = distance > 0 ? totalTripCost / distance : 0;
+  const netProfitLoss = grossPrice - totalTripCost;
+  const profitMarginPercent = grossPrice > 0 ? (netProfitLoss / grossPrice) * 100 : 0;
 
-  // Calculate prorated salary per trip
+  const buildFleetPriceBreakdown = useCallback(() => ({
+    type: "my_fleet" as const,
+    distance,
+    monthlySalary,
+    tripsPerMonth,
+    proratedSalaryPerTrip,
+    fuel,
+    tolls,
+    maintenance,
+    miscellaneous,
+    monthlyDepreciation,
+    monthlyOverhead,
+    proratedPerTrip,
+    totalTripCost,
+    costPerKm,
+    shipperPrice: grossPrice,
+    profitMarginPercent,
+    netProfitLoss,
+    notes,
+  }), [
+    distance, monthlySalary, tripsPerMonth, proratedSalaryPerTrip, fuel, tolls,
+    maintenance, miscellaneous, monthlyDepreciation, monthlyOverhead, proratedPerTrip,
+    totalTripCost, costPerKm, grossPrice, profitMarginPercent, netProfitLoss, notes,
+  ]);
+
   useEffect(() => {
-    if (monthlySalary && tripsPerMonth) {
-      const prorated = monthlySalary / tripsPerMonth;
-      setProratedSalaryPerTrip(prorated);
-    }
-  }, [monthlySalary, tripsPerMonth]);
-
-  // Calculate prorated overhead and depreciation per trip
-  useEffect(() => {
-    if (monthlyDepreciation && monthlyOverhead && tripsPerMonth) {
-      const prorated = (monthlyDepreciation + monthlyOverhead) / tripsPerMonth;
-      setProratedPerTrip(prorated);
-    }
-  }, [monthlyDepreciation, monthlyOverhead, tripsPerMonth]);
-
-  // Calculate total trip cost
-  useEffect(() => {
-    const total =
-      proratedSalaryPerTrip +
-      fuel +
-      tolls +
-      maintenance +
-      miscellaneous +
-      proratedPerTrip;
-    setTotalTripCost(total);
-  }, [proratedSalaryPerTrip, fuel, tolls, maintenance, miscellaneous, proratedPerTrip]);
-
-  // Calculate cost per km
-  useEffect(() => {
-    if (distance && totalTripCost) {
-      const costKm = totalTripCost / distance;
-      setCostPerKm(costKm);
-    }
-  }, [distance, totalTripCost]);
-
-  // Calculate profit margin and net profit/loss
-  useEffect(() => {
-    if (shipperPrice && totalTripCost) {
-      const netProfit = shipperPrice - totalTripCost;
-      const marginPercent = (netProfit / shipperPrice) * 100;
-      setNetProfitLoss(netProfit);
-      setProfitMarginPercent(marginPercent);
-    }
-  }, [shipperPrice, totalTripCost]);
-
-  const handleSave = () => {
-    if (!distance || !totalTripCost) {
-      toast({
-        title: "Error",
-        description: "Please fill in all required fields",
-        variant: "destructive",
-      });
+    if (!open) {
+      setDistance(0);
+      setMonthlySalary(0);
+      setTripsPerMonth(0);
+      setFuel(0);
+      setTolls(0);
+      setMaintenance(0);
+      setMiscellaneous(0);
+      setMonthlyDepreciation(0);
+      setMonthlyOverhead(0);
+      setNotes("");
       return;
     }
-
-    setIsLoading(true);
-    // TODO: Save to backend
-    setTimeout(() => {
-      setIsLoading(false);
-      toast({
-        title: "Success",
-        description: "My Fleet pricing saved successfully",
-      });
-      onOpenChange(false);
-      onSuccess?.();
-    }, 1000);
-  };
+    if (!load) return;
+    const parsed = parseFloat(String(load.distance ?? ""));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      setDistance(parsed);
+      return;
+    }
+    const estimated = computeRouteDistanceKmEstimate({
+      pickupCity: load.pickupCity,
+      dropoffCity: load.dropoffCity,
+      pickupLat: load.pickupLat,
+      pickupLng: load.pickupLng,
+      dropoffLat: load.dropoffLat,
+      dropoffLng: load.dropoffLng,
+    });
+    setDistance(Number.isFinite(estimated) && estimated > 0 ? Math.round(estimated) : 0);
+  }, [open, load?.id, load?.distance, load?.pickupCity, load?.dropoffCity]);
 
   if (!load) return null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-[550px] p-0 flex flex-col overflow-hidden">
+      <SheetContent className="w-full sm:max-w-[550px] h-[100dvh] max-h-[100dvh] p-0 flex flex-col overflow-hidden">
         <SheetHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 border-b flex-shrink-0">
           <div className="flex items-center gap-2">
             {isCarrierFinalized ? (
@@ -986,14 +993,11 @@ export function MyFleetPricingDrawer({
                 <div className="flex items-center gap-2">
                   <Truck className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                   <h3 className="font-semibold text-sm sm:text-base">My Fleet Pricing</h3>
+                  {isLoading && (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  )}
                 </div>
 
-                {isLoading ? (
-                  <div className="flex items-center justify-center py-8 sm:py-12">
-                    <Loader2 className="h-6 w-6 sm:h-8 sm:w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : (
-                  <>
                     {/* Shipper Requested Price Indicator */}
                     {(load.shipperFixedPrice || load.shipperPricePerTon || load.advancePaymentPercent) && (
                       <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
@@ -1230,14 +1234,13 @@ export function MyFleetPricingDrawer({
                         </div>
                       </CardContent>
                     </Card>
-                  </>
-                )}
               </div>
             )}
 
-            <Separator className="my-4" />
-
+            {!isCarrierFinalized && (
             <div className="space-y-4">
+              <Separator />
+
               {/* Distance Input */}
               <Card>
                 <CardHeader className="pb-3">
@@ -1495,7 +1498,7 @@ export function MyFleetPricingDrawer({
                 <div className="space-y-3">
                   <div className="space-y-2">
                     <Label className="text-xs sm:text-sm">Driver</Label>
-                    <Select value={assignedCarrier} onValueChange={handleDriverChange}>
+                    <Select value={assignedCarrier || undefined} onValueChange={handleDriverChange}>
                       <SelectTrigger data-testid="select-drawer-assign-driver">
                         <SelectValue placeholder="Select driver to assign" />
                       </SelectTrigger>
@@ -1526,7 +1529,7 @@ export function MyFleetPricingDrawer({
 
                   <div className="space-y-2">
                     <Label className="text-xs sm:text-sm">Truck</Label>
-                    <Select value={assignedTruck} onValueChange={setAssignedTruck}>
+                    <Select value={assignedTruck || undefined} onValueChange={setAssignedTruck}>
                       <SelectTrigger data-testid="select-drawer-assign-truck">
                         <Truck className="h-4 w-4 mr-2 text-muted-foreground" />
                         <SelectValue placeholder="Select truck to assign" />
@@ -1572,35 +1575,37 @@ export function MyFleetPricingDrawer({
                   )}
                 </div>
               </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => onOpenChange(false)}
-                  className="flex-1"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleLockAndPost}
-                  disabled={isLocking || !assignedCarrier || !assignedTruck || grossPrice <= 0}
-                  className="flex-1"
-                  data-testid="button-save-assign-fleet"
-                >
-                  {isLocking ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Assigning...
-                    </>
-                  ) : (
-                    "Save & Assign"
-                  )}
-                </Button>
-              </div>
             </div>
+            )}
           </div>
         </div>
+
+        {!isCarrierFinalized && (
+          <div className="flex-shrink-0 border-t bg-background px-4 sm:px-6 py-3 flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleLockAndPost}
+              disabled={isLocking || !assignedCarrier || !assignedTruck || grossPrice <= 0}
+              className="flex-1"
+              data-testid="button-save-assign-fleet"
+            >
+              {isLocking ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Assigning...
+                </>
+              ) : (
+                "Save & Assign"
+              )}
+            </Button>
+          </div>
+        )}
       </SheetContent>
     </Sheet>
   );

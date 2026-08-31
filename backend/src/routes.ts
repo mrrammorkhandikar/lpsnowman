@@ -3456,6 +3456,36 @@ export async function registerRoutes(
           const adminPricing = load ? await storage.getAdminPricingByLoad(load.id) : null;
           const carrierSettlement = shipment ? await storage.getSettlementByLoad(shipment.loadId) : null;
 
+          const priceBreakdown = (load?.priceBreakdown as Record<string, unknown> | null)
+            || (adminPricing?.priceBreakdown as Record<string, unknown> | null)
+            || null;
+          const isMyFleet = priceBreakdown?.type === "my_fleet" || carrier?.role === "admin";
+          const num = (v: unknown) => {
+            const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
+            return Number.isFinite(n) ? n : 0;
+          };
+          const myFleetPricing = isMyFleet && priceBreakdown
+            ? {
+                distance: num(priceBreakdown.distance),
+                monthlySalary: num(priceBreakdown.monthlySalary),
+                tripsPerMonth: num(priceBreakdown.tripsPerMonth),
+                proratedSalaryPerTrip: num(priceBreakdown.proratedSalaryPerTrip),
+                fuel: num(priceBreakdown.fuel),
+                tolls: num(priceBreakdown.tolls),
+                maintenance: num(priceBreakdown.maintenance),
+                miscellaneous: num(priceBreakdown.miscellaneous),
+                monthlyDepreciation: num(priceBreakdown.monthlyDepreciation),
+                monthlyOverhead: num(priceBreakdown.monthlyOverhead),
+                proratedPerTrip: num(priceBreakdown.proratedPerTrip),
+                totalTripCost: num(priceBreakdown.totalTripCost),
+                costPerKm: num(priceBreakdown.costPerKm),
+                shipperPrice: num(priceBreakdown.shipperPrice),
+                profitMarginPercent: num(priceBreakdown.profitMarginPercent),
+                netProfitLoss: num(priceBreakdown.netProfitLoss),
+                notes: String(priceBreakdown.notes || ""),
+              }
+            : undefined;
+
           return {
             id: shipment.id,
             loadId: shipment.loadId,
@@ -3488,6 +3518,8 @@ export async function registerRoutes(
                   finalPrice: load.finalPrice,
                   carrierAdvancePercent: load.carrierAdvancePercent,
                   advancePaymentPercent: load.advancePaymentPercent,
+                  pricingType: isMyFleet ? "my_fleet" : "marketplace",
+                  myFleetPricing,
                 }
               : null,
             invoicePaid,
@@ -7799,7 +7831,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
         return res.status(403).json({ error: "Admin access required" });
       }
 
-      const { load_id, carrier_id, truck_id, driver_id, final_price, gross_price } = req.body;
+      const { load_id, carrier_id, truck_id, driver_id, final_price, gross_price, price_breakdown } = req.body;
 
       const load = await storage.getLoad(load_id);
       if (!load) {
@@ -7937,6 +7969,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
         adminFinalPrice: adminFinalPrice,
         finalPrice: carrierPayout,
         adminSuggestedPrice: suggestedPrice,
+        priceBreakdown: price_breakdown || adminPricing?.priceBreakdown || load.priceBreakdown || null,
       });
 
       // Create order/shipment with optional truck and driver
@@ -8475,25 +8508,26 @@ RESPOND IN THIS EXACT JSON FORMAT:
       }
 
       const { 
-        load_id, suggested_price, final_price, markup_percent, fixed_fee, 
-        fuel_override, discount_amount, platform_margin_percent, notes, template_id 
+        load_id, suggested_price, final_price, gross_price, markup_percent, fixed_fee, 
+        fuel_override, discount_amount, platform_margin_percent, notes, template_id,
+        price_breakdown,
       } = req.body;
 
       // Check if pricing already exists for this load
       let existingPricing = await storage.getAdminPricingByLoad(load_id);
 
-      // Calculate payout and margin
-      const finalPriceNum = parseFloat(final_price || suggested_price);
+      // Calculate payout and margin — shipper total is gross_price or final_price
+      const shipperTotal = parseFloat(gross_price || final_price || suggested_price);
       const platformMarginPercent = parseFloat(platform_margin_percent || PRICING_CONFIG.defaultPlatformRate);
-      const platformMargin = Math.round(finalPriceNum * (platformMarginPercent / 100));
-      const payoutEstimate = Math.round(finalPriceNum - platformMargin);
+      const platformMargin = Math.round(shipperTotal * (platformMarginPercent / 100));
+      const payoutEstimate = Math.round(shipperTotal - platformMargin);
 
       const pricingData = {
         loadId: load_id,
         adminId: user.id,
         templateId: template_id || null,
-        suggestedPrice: suggested_price?.toString(),
-        finalPrice: final_price?.toString() || null,
+        suggestedPrice: (suggested_price ?? shipperTotal)?.toString(),
+        finalPrice: (gross_price || final_price)?.toString() || null,
         markupPercent: markup_percent?.toString() || "0",
         fixedFee: fixed_fee?.toString() || "0",
         fuelOverride: fuel_override?.toString() || null,
@@ -8503,6 +8537,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
         platformMarginPercent: platformMarginPercent.toString(),
         status: 'draft',
         notes: notes || null,
+        priceBreakdown: price_breakdown || null,
       };
 
       let pricing;
@@ -13544,7 +13579,14 @@ RESPOND IN THIS EXACT JSON FORMAT:
       const { carrierId, shipmentId, loadId, rating, review } = parsed.data;
       const reviewText = typeof review === "string" ? review.trim() : undefined;
       const shipment = await storage.getShipment(shipmentId);
-      if (!shipment || shipment.loadId !== loadId || shipment.carrierId !== carrierId) {
+      if (!shipment || shipment.loadId !== loadId) {
+        return res.status(400).json({ error: "Shipment does not match load or carrier" });
+      }
+      const assignedDriver = shipment.driverId ? await storage.getDriver(shipment.driverId) : undefined;
+      const carrierMatches =
+        shipment.carrierId === carrierId ||
+        (!!assignedDriver?.userId && assignedDriver.userId === carrierId);
+      if (!carrierMatches) {
         return res.status(400).json({ error: "Shipment does not match load or carrier" });
       }
       const load = await storage.getLoad(loadId);
@@ -13577,10 +13619,14 @@ RESPOND IN THIS EXACT JSON FORMAT:
         .where(eq(carrierRatings.carrierId, carrierId));
       const sumStars = allForCarrier.reduce((s, r) => s + r.rating, 0);
       const avgRating = Math.round((sumStars / allForCarrier.length) * 10) / 10;
-      await db
-        .update(carrierProfilesTable)
-        .set({ rating: String(avgRating) })
-        .where(eq(carrierProfilesTable.userId, carrierId));
+      try {
+        await db
+          .update(carrierProfilesTable)
+          .set({ rating: String(avgRating) })
+          .where(eq(carrierProfilesTable.userId, carrierId));
+      } catch (profileErr) {
+        console.error("Carrier rating: profile average update skipped:", profileErr);
+      }
       broadcastRatingReceived(carrierId, {
         rating,
         review: reviewText || undefined,
@@ -13878,13 +13924,17 @@ RESPOND IN THIS EXACT JSON FORMAT:
     }
   });
 
-  // POST /api/shipper-ratings — carrier rates shipper after trip completion
+  // POST /api/shipper-ratings — carrier or assigned fleet driver rates shipper after trip completion
   app.post("/api/shipper-ratings", requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
-      if (!user || user.role !== "carrier") {
-        return res.status(403).json({ error: "Carrier access required" });
+      if (!user) {
+        return res.status(401).json({ error: "Unauthorized" });
       }
+      if (user.role === "shipper") {
+        return res.status(403).json({ error: "Use /api/carrier-ratings to rate the carrier or driver" });
+      }
+
       const parsed = postTripStarRatingBody.extend({ shipperId: z.string().min(1) }).safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
@@ -13892,8 +13942,14 @@ RESPOND IN THIS EXACT JSON FORMAT:
       const { shipperId, shipmentId, loadId, rating, review } = parsed.data;
       const reviewText = typeof review === "string" ? review.trim() : undefined;
       const shipment = await storage.getShipment(shipmentId);
-      if (!shipment || shipment.loadId !== loadId || shipment.carrierId !== user.id) {
-        return res.status(400).json({ error: "Shipment does not match load or you are not the assigned carrier" });
+      if (!shipment) {
+        return res.status(404).json({ error: "Shipment not found" });
+      }
+      if (!(await userCanAccessShipment(user, shipment))) {
+        return res.status(403).json({ error: "Not authorized to rate this shipment" });
+      }
+      if (shipment.loadId !== loadId) {
+        return res.status(400).json({ error: "Shipment does not match load" });
       }
       const load = await storage.getLoad(loadId);
       if (!load) {
@@ -13911,13 +13967,14 @@ RESPOND IN THIS EXACT JSON FORMAT:
       if (!delivered) {
         return res.status(400).json({ error: "Trip must be completed before rating" });
       }
-      const dup = await storage.getShipperRatingByShipmentAndCarrier(shipmentId, user.id);
+      const raterCarrierId = shipment.carrierId;
+      const dup = await storage.getShipperRatingByShipmentAndCarrier(shipmentId, raterCarrierId);
       if (dup) {
         return res.status(409).json({ error: "You have already submitted a rating for this trip" });
       }
       const row = await storage.createShipperRating({
         shipperId,
-        carrierId: user.id,
+        carrierId: raterCarrierId,
         shipmentId,
         loadId,
         rating,
@@ -16551,8 +16608,7 @@ RESPOND IN THIS EXACT JSON FORMAT:
         return res.status(404).json({ error: "Shipment not found" });
       }
 
-      // Verify carrier owns this shipment
-      if (shipment.carrierId !== user.id) {
+      if (!(await userCanAccessShipment(user, shipment))) {
         return res.status(403).json({ error: "Not authorized for this shipment" });
       }
 

@@ -265,8 +265,26 @@ function resolveLoadDistance(load: RealLoad): number {
   const km = computeRouteDistanceKmEstimate({
     pickupCity: load.pickupCity,
     dropoffCity: load.dropoffCity,
+    pickupLat: load.pickupLat,
+    pickupLng: load.pickupLng,
+    dropoffLat: load.dropoffLat,
+    dropoffLng: load.dropoffLng,
   });
   return Number.isFinite(km) ? Math.round(km) : 0;
+}
+
+function resolveMyFleetPricing(load: RealLoad): RealLoad["myFleetPricing"] {
+  if (load.myFleetPricing) return load.myFleetPricing;
+  const pb = load.priceBreakdown;
+  if (pb && (pb.type === "my_fleet" || pb.totalTripCost != null)) {
+    return {
+      totalTripCost: Number(pb.totalTripCost) || 0,
+      costPerKm: Number(pb.costPerKm) || 0,
+      profitMarginPercent: Number(pb.profitMarginPercent) || 0,
+      netProfitLoss: Number(pb.netProfitLoss) || 0,
+    };
+  }
+  return undefined;
 }
 
 interface RealLoad {
@@ -324,6 +342,13 @@ interface RealLoad {
   pickupId?: string;
   allowCounterBids?: boolean;
   pricingType?: "marketplace" | "my_fleet";
+  priceBreakdown?: {
+    type?: string;
+    totalTripCost?: number;
+    costPerKm?: number;
+    profitMarginPercent?: number;
+    netProfitLoss?: number;
+  } | null;
   myFleetPricing?: {
     totalTripCost: number;
     costPerKm: number;
@@ -1132,7 +1157,12 @@ export default function LoadQueuePage() {
                                 size="icon"
                                 variant="ghost"
                                 className="h-7 w-7 sm:h-8 sm:w-8"
-                                onClick={() => openLoadDetails({ ...load, pricingType: "my_fleet", distance: resolveLoadDistance(load) })}
+                                onClick={() => openLoadDetails({
+                                  ...load,
+                                  pricingType: "my_fleet",
+                                  distance: resolveLoadDistance(load),
+                                  myFleetPricing: resolveMyFleetPricing(load),
+                                })}
                                 data-testid={`button-myfleet-details-${load.id.slice(0, 8)}`}
                                 title="View full details"
                               >
@@ -2234,15 +2264,21 @@ export default function LoadQueuePage() {
         onOpenChange={setMyFleetDrawerOpen}
         load={myFleetLoad ? {
           id: myFleetLoad.id,
+          loadId: formatLoadId(myFleetLoad),
           pickupCity: myFleetLoad.pickupCity,
           dropoffCity: myFleetLoad.dropoffCity,
           weight: myFleetLoad.weight,
           weightUnit: myFleetLoad.weightUnit,
           requiredTruckType: myFleetLoad.requiredTruckType || "",
-          distance: myFleetLoad.distance,
+          distance: resolveLoadDistance(myFleetLoad),
+          pickupLat: myFleetLoad.pickupLat,
+          pickupLng: myFleetLoad.pickupLng,
+          dropoffLat: myFleetLoad.dropoffLat,
+          dropoffLng: myFleetLoad.dropoffLng,
           cargoDescription: myFleetLoad.cargoDescription || myFleetLoad.goodsToBeCarried,
           adminFinalPrice: myFleetLoad.adminFinalPrice,
           status: myFleetLoad.status,
+          shipperName: myFleetLoad.shipperName,
           shipperPricePerTon: myFleetLoad.shipperPricePerTon,
           shipperFixedPrice: myFleetLoad.shipperFixedPrice,
           rateType: myFleetLoad.rateType,
