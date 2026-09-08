@@ -7,6 +7,7 @@ import { setupMarketplaceWebSocket } from "./websocket-marketplace";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { storage } from "./storage";
 import { scheduleIntuTrackRefresh } from "./trips/triptrack-locations-service";
+import { startBc365PaymentPoller } from "./bc365/sync-service";
 import { pool } from "./db";
 import { warmDatabasePool, startPoolKeepAlive } from "./session-store-setup";
 import path from "path";
@@ -303,6 +304,7 @@ app.use((req, res, next) => {
         log(`Scheduling IntuTrack locations refresh every ${intervalMs / 1000}s`);
         setInterval(scheduleIntuTrackRefresh, intervalMs);
       }
+      startBc365PaymentPoller();
 
       // Run migration in background (non-blocking) - optional
       // Uncomment if you want migrations to run after server is healthy

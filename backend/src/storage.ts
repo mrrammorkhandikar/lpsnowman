@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { randomUUID, timingSafeEqual } from "crypto";
 import { eq, and, desc, asc, sql, inArray, or, count } from "drizzle-orm";
+import { scheduleBc365LoadSync } from "./bc365/sync-queue";
 import {
   users, trucks, loads, bids, shipments, shipmentEvents, drivers,
   messages, documents, notifications, ratings, carrierProfiles, adminDecisions,
@@ -611,11 +612,13 @@ export class DatabaseStorage implements IStorage {
       weight: load.weight.toString(),
     };
     const [newLoad] = await db.insert(loads).values(loadWithCorrectTypes).returning();
+    scheduleBc365LoadSync(newLoad?.id);
     return newLoad;
   }
 
   async updateLoad(id: string, updates: Partial<Load>): Promise<Load | undefined> {
     const [updated] = await db.update(loads).set(updates).where(eq(loads.id, id)).returning();
+    scheduleBc365LoadSync(updated?.id || id);
     return updated;
   }
 
@@ -743,11 +746,13 @@ export class DatabaseStorage implements IStorage {
 
   async createShipment(shipment: InsertShipment): Promise<Shipment> {
     const [newShipment] = await db.insert(shipments).values(shipment).returning();
+    scheduleBc365LoadSync(newShipment?.loadId);
     return newShipment;
   }
 
   async updateShipment(id: string, updates: Partial<Shipment>): Promise<Shipment | undefined> {
     const [updated] = await db.update(shipments).set(updates).where(eq(shipments.id, id)).returning();
+    scheduleBc365LoadSync(updated?.loadId);
     return updated;
   }
 
@@ -2322,6 +2327,7 @@ export class DatabaseStorage implements IStorage {
 
   async createFinanceReview(review: InsertFinanceReview): Promise<FinanceReview> {
     const [created] = await db.insert(financeReviews).values(review).returning();
+    scheduleBc365LoadSync(created?.loadId);
     return created;
   }
 
@@ -2330,6 +2336,7 @@ export class DatabaseStorage implements IStorage {
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(financeReviews.id, id))
       .returning();
+    scheduleBc365LoadSync(updated?.loadId);
     return updated;
   }
 }

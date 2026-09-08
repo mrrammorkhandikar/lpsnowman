@@ -24,6 +24,7 @@ import {
   CheckCircle,
   ChevronDown,
   ShieldCheck,
+  Landmark,
 } from "lucide-react";
 import {
   Sidebar,
@@ -135,6 +136,7 @@ const adminItems: (NavItem | NavSection)[] = [
   { titleKey: "nav.carriers", url: "/admin/carriers", icon: Truck, pageKey: "carriers" },
   { titleKey: "nav.verification", url: "/admin/verification", icon: Shield, pageKey: "carrier_verification" },
   { titleKey: "nav.documentReview", url: "/admin/finance-review", icon: FileText, pageKey: "document_review" },
+  { titleKey: "nav.bc365Sync", url: "/admin/bc365-sync", icon: Landmark, pageKey: "bc365_sync" },
   { titleKey: "nav.reports", url: "/admin/reports", icon: BarChart3, pageKey: "reports" },
 ];
 

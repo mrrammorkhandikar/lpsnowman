@@ -98,6 +98,12 @@ const BOOTSTRAP_CHECKS: Record<string, string> = {
       WHERE table_schema = 'public' AND table_name = 'admin_roles'
     ) AS exists
   `,
+  "0012_bc365_sync.sql": `
+    SELECT EXISTS (
+      SELECT 1 FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'bc_load_maps'
+    ) AS exists
+  `,
 };
 
 function getMigrationsDir(): string {

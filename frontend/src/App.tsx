@@ -188,6 +188,7 @@ const AdminAddTruckRoute = withRoleGate("admin", "/auth")(AdminAddTruckPage as R
 const AdminDriversRoute = withRoleGate("admin", "/auth")(AdminDriversPage as React.ComponentType);
 const AdminDriverProfileRoute = withRoleGate("admin", "/auth")(MyCarrierProfilePage as React.ComponentType);
 const AdminRolesPage = lazy(() => import("@/pages/admin/roles"));
+const AdminBc365SyncPage = lazy(() => import("@/pages/admin/bc365-sync"));
 
 const PUBLIC_ROUTES: Record<string, React.ComponentType> = {
   "/load-board": LoadBoardPage as React.ComponentType,
@@ -308,6 +309,7 @@ function AuthenticatedLayout() {
                 <Route path="/admin/drivers/:driverId" component={AdminDriverProfileRoute} />
                 <Route path="/admin/drivers" component={AdminDriversRoute} />
                 <Route path="/admin/roles" component={AdminRolesPage as React.ComponentType} />
+                <Route path="/admin/bc365-sync" component={AdminBc365SyncPage as React.ComponentType} />
 
                 <Route path="/settings" component={SettingsPage as React.ComponentType} />
 

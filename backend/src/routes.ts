@@ -121,6 +121,7 @@ import { registerSurepassRoutes } from "./surepass-routes";
 import { verifyEmailCheck, verifyGstin, verifyPanComprehensive } from "./surepass-service";
 import { registerTripRoutes } from "./trips/trip-routes";
 import { registerFinanceReviewRoutes } from "./finance-review-routes";
+import { registerBc365Routes } from "./bc365/routes";
 import { registerIntutrackRoutes } from "./intutrack-routes";
 import { getCoordinatesFromAddress } from "./google-geocoding";
 import fs from "fs/promises";
@@ -933,6 +934,7 @@ export async function registerRoutes(
   registerSurepassRoutes(app);
   registerTripRoutes(app);
   registerFinanceReviewRoutes(app);
+  registerBc365Routes(app);
   registerIntutrackRoutes(app);
 
   // Note: Primary health check is at /health (registered in index.ts before all middleware)

@@ -21,3 +21,4 @@ export { default as AdminFleetPage } from "./fleet";
 export { default as AdminDriversPage } from "./drivers";
 export { default as MyCarrierProfilePage } from "./my-carrier-profile";
 export { default as AdminRolesPage } from "./roles";
+export { default as AdminBc365SyncPage } from "./bc365-sync";

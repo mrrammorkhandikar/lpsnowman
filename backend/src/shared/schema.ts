@@ -2130,3 +2130,46 @@ export const financeReviewsRelations = relations(financeReviews, ({ one }) => ({
 export const insertFinanceReviewSchema = createInsertSchema(financeReviews).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertFinanceReview = z.infer<typeof insertFinanceReviewSchema>;
 export type FinanceReview = typeof financeReviews.$inferSelect;
+
+export const bcSyncSettings = pgTable("bc_sync_settings", {
+  id: varchar("id").primaryKey().default("default"),
+  companyId: text("company_id"),
+  companyName: text("company_name"),
+  customerNumber: text("customer_number"),
+  lastPushAt: timestamp("last_push_at"),
+  lastPullAt: timestamp("last_pull_at"),
+  lastWipeAt: timestamp("last_wipe_at"),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const bcLoadMaps = pgTable("bc_load_maps", {
+  loadId: varchar("load_id").primaryKey().references(() => loads.id),
+  bcOrderId: text("bc_order_id").notNull(),
+  bcOrderNumber: text("bc_order_number"),
+  payloadHash: text("payload_hash"),
+  lastPushedAt: timestamp("last_pushed_at"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const bcSyncRuns = pgTable("bc_sync_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  runType: text("run_type").notNull(),
+  status: text("status").notNull(),
+  ourCount: integer("our_count"),
+  syncedCount: integer("synced_count"),
+  mismatchedCount: integer("mismatched_count"),
+  missingOnBc: integer("missing_on_bc"),
+  extraOnBc: integer("extra_on_bc"),
+  errorCount: integer("error_count"),
+  details: jsonb("details"),
+  startedAt: timestamp("started_at").defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  startedBy: varchar("started_by").references(() => users.id),
+});
+
+export type BcSyncSettings = typeof bcSyncSettings.$inferSelect;
+export type BcLoadMap = typeof bcLoadMaps.$inferSelect;
+export type BcSyncRun = typeof bcSyncRuns.$inferSelect;
