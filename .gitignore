@@ -14,5 +14,6 @@ pnpm-debug.log*
 .DS_Store
 .idea
 .vscode
+bc-extension/
 db_data
 *.pem

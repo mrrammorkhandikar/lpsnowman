@@ -1,4 +1,4 @@
-import { bcApiRoot, getBc365Config, type Bc365Config } from "./config";
+import { bcApiRoot, bcLoadsApiRoot, getBc365Config, type Bc365Config } from "./config";
 
 type TokenState = {
   accessToken: string;
@@ -19,6 +19,31 @@ export type BcCompany = {
   id: string;
   name: string;
   displayName?: string;
+};
+
+export type BcLoadRecord = {
+  id?: string;
+  loadId?: string;
+  loadNumber?: string | null;
+  shipperId?: string | null;
+  shipperName?: string | null;
+  pickupAddress?: string | null;
+  pickupCity?: string | null;
+  pickupState?: string | null;
+  pickupPincode?: string | null;
+  dropoffAddress?: string | null;
+  dropoffCity?: string | null;
+  dropoffState?: string | null;
+  dropoffPincode?: string | null;
+  loadStatus?: string | null;
+  tripType?: string | null;
+  driverName?: string | null;
+  paymentStatus?: string | null;
+  price?: number | string | null;
+  pickupDate?: string | null;
+  deliveryDate?: string | null;
+  lastModifiedDateTime?: string;
+  "@odata.etag"?: string;
 };
 
 export type BcSalesOrder = {
@@ -219,6 +244,69 @@ export class Bc365Client {
     return `/companies(${companyId})${clean}`;
   }
 
+  private loadCollectionUrl(companyId: string): string {
+    return `${bcLoadsApiRoot(this.config)}/companies(${companyId})/loads`;
+  }
+
+  private loadItemUrl(companyId: string, loadId: string): string {
+    const key = loadId.replace(/'/g, "''");
+    return `${this.loadCollectionUrl(companyId)}('${key}')`;
+  }
+
+  async pingLoadsApi(companyId: string): Promise<void> {
+    const qs = new URLSearchParams({ $top: "1" });
+    await this.request<ODataList<BcLoadRecord>>(
+      "GET",
+      `${this.loadCollectionUrl(companyId)}?${qs.toString()}`,
+      { absolute: true },
+    );
+  }
+
+  async listLoads(companyId: string, filter?: string): Promise<BcLoadRecord[]> {
+    const qs = new URLSearchParams();
+    qs.set("$top", "2000");
+    if (filter) qs.set("$filter", filter);
+    const data = await this.request<ODataList<BcLoadRecord>>(
+      "GET",
+      `${this.loadCollectionUrl(companyId)}?${qs.toString()}`,
+      { absolute: true },
+    );
+    return data.value || [];
+  }
+
+  async getLoad(companyId: string, loadId: string): Promise<BcLoadRecord> {
+    return this.request<BcLoadRecord>("GET", this.loadItemUrl(companyId, loadId), {
+      absolute: true,
+    });
+  }
+
+  async createLoad(companyId: string, body: Record<string, unknown>): Promise<BcLoadRecord> {
+    return this.request<BcLoadRecord>("POST", this.loadCollectionUrl(companyId), {
+      body,
+      absolute: true,
+    });
+  }
+
+  async updateLoad(
+    companyId: string,
+    loadId: string,
+    body: Record<string, unknown>,
+    etag: string,
+  ): Promise<BcLoadRecord | void> {
+    return this.request<BcLoadRecord | void>("PATCH", this.loadItemUrl(companyId, loadId), {
+      body,
+      etag,
+      absolute: true,
+    });
+  }
+
+  async deleteLoad(companyId: string, loadId: string, etag?: string): Promise<void> {
+    await this.request("DELETE", this.loadItemUrl(companyId, loadId), {
+      etag: etag || "*",
+      absolute: true,
+    });
+  }
+
   async listSalesOrders(
     companyId: string,
     filter?: string,
@@ -312,7 +400,19 @@ export function explainBc365Error(error: unknown): string {
     return "Azure login succeeded, but Business Central refused the app. In BC search Microsoft Entra Applications, add this Client ID, set Status to Enabled, grant D365 BUS FULL ACCESS, then Grant Consent. In Azure, admin-consent Dynamics 365 Business Central application permissions (API.ReadWrite.All).";
   }
   if (/NoEnvironment/i.test(blob)) {
-    return `Business Central environment "${getBc365Config().environment}" was not found on this tenant. Use the name from the browser URL after the tenant id (often Production).`;
+    return `Business Central environment "${getBc365Config().environment}" was not found on this tenant. Use the name from the admin URL (for this project: TestEnv).`;
+  }
+  if (/current permissions prevented the action|TableData 50100|LP Load/i.test(blob) && /Insert|Modify|Delete/i.test(blob)) {
+    return "Business Central blocked writing LoadPilot Loads. In TestEnv open Microsoft Entra Applications, disable the LoadPilot card, add permission set LP Loads, then enable the card again. D365 BUS FULL ACCESS does not include this custom table.";
+  }
+  if (
+    error.status === 404 &&
+    /loadpilot\/integration|\/loads/i.test(blob)
+  ) {
+    return "The LoadPilot Loads table is not available in this environment. Publish the AL extension to TestEnv, then add permission set LP Loads on the Microsoft Entra Applications card.";
+  }
+  if (/Internal_RecordNotFound|does not exist/i.test(blob) && /LP Load|loads/i.test(blob)) {
+    return "The Entra app can sign in but cannot read LoadPilot Loads. Disable the Entra card, add permission set LP Loads, then enable it again.";
   }
   return error.message;
 }

@@ -1,13 +1,14 @@
 import { createHash } from "crypto";
 import type { FinanceReview, Load, Shipment, Driver, User } from "@shared/schema";
 import { BC_EXTERNAL_PREFIX, BC_META_PREFIX } from "./config";
-import type { BcSalesOrder } from "./client";
+import type { BcLoadRecord } from "./client";
 
 export type TripType = "carrier_fix" | "driver_fix";
 
 export type LoadPilotSnapshot = {
   loadId: string;
   loadNumber: string;
+  shipperId: string;
   pickupAddress: string;
   pickupCity: string;
   pickupState: string;
@@ -30,6 +31,10 @@ export type LoadPilotSnapshot = {
 
 export function compactLoadId(loadId: string): string {
   return `${BC_EXTERNAL_PREFIX}${loadId.replace(/-/g, "").slice(0, 32)}`;
+}
+
+export function normalizeLoadId(value: string | null | undefined): string {
+  return (value || "").trim().toLowerCase();
 }
 
 export function loadIdFromExternal(external: string | null | undefined): string | null {
@@ -77,6 +82,7 @@ export function buildSnapshot(input: {
   return {
     loadId: load.id,
     loadNumber: formatLoadNumber(load),
+    shipperId: load.shipperId || "",
     pickupAddress: load.pickupAddress || "",
     pickupCity: load.pickupCity || "",
     pickupState: load.pickupState || "",
@@ -138,69 +144,58 @@ export function parseMeta(line: string | null | undefined): {
 
 export function parsePaymentStatus(raw: string | null | undefined): string {
   const value = (raw || "").trim().toLowerCase();
-  if (value === "released" || value.endsWith("released")) return "released";
-  if (value === "processing" || value.includes("processing")) return "processing";
   if (value === "not_released" || value.includes("not_released")) return "not_released";
+  if (value === "processing" || value.includes("processing")) return "processing";
+  if (value === "released") return "released";
   return "not_released";
 }
 
-function countryCode(stateOrCountry: string): string {
-  const v = (stateOrCountry || "").trim().toUpperCase();
-  if (!v || v === "INDIA" || v === "IN") return "IN";
-  return clip(v, 10) || "IN";
-}
-
-export function toSalesOrderBody(
-  snapshot: LoadPilotSnapshot,
-  customerNumber: string,
-): Record<string, unknown> {
+export function toLoadBody(snapshot: LoadPilotSnapshot): Record<string, unknown> {
+  const price = Number.parseFloat(snapshot.price);
   return {
-    customerNumber,
-    externalDocumentNumber: compactLoadId(snapshot.loadId),
-    phoneNumber: clip(snapshot.phone, 30),
-    orderDate: snapshot.pickupDate || undefined,
-    requestedDeliveryDate: snapshot.deliveryDate || undefined,
-    shipToName: clip(snapshot.shipperName || snapshot.dropoffCity, 100),
-    shipToContact: clip(snapshot.driverName, 100),
-    shipToAddressLine1: clip(snapshot.dropoffAddress, 100),
-    shipToCity: clip(snapshot.dropoffCity, 50),
-    shipToState: clip(snapshot.dropoffState, 30),
-    shipToPostCode: clip(snapshot.dropoffPincode, 20),
-    shipToCountry: countryCode(snapshot.dropoffState),
-    sellToAddressLine1: clip(snapshot.pickupAddress, 100),
-    sellToAddressLine2: encodeMeta(snapshot),
-    sellToCity: clip(snapshot.pickupCity, 50),
-    sellToState: clip(snapshot.pickupState, 30),
-    sellToPostCode: clip(snapshot.pickupPincode, 20),
-    sellToCountry: countryCode(snapshot.pickupState),
+    loadId: clip(snapshot.loadId, 50).toUpperCase(),
+    loadNumber: clip(snapshot.loadNumber, 30),
+    shipperId: clip(snapshot.shipperId, 50),
+    shipperName: clip(snapshot.shipperName, 100),
+    pickupAddress: clip(snapshot.pickupAddress, 250),
+    pickupCity: clip(snapshot.pickupCity, 50),
+    pickupState: clip(snapshot.pickupState, 50),
+    pickupPincode: clip(snapshot.pickupPincode, 20),
+    dropoffAddress: clip(snapshot.dropoffAddress, 250),
+    dropoffCity: clip(snapshot.dropoffCity, 50),
+    dropoffState: clip(snapshot.dropoffState, 50),
+    dropoffPincode: clip(snapshot.dropoffPincode, 20),
+    loadStatus: clip(snapshot.loadStatus, 50),
+    tripType: clip(snapshot.tripType, 20),
+    driverName: clip(snapshot.driverName, 100),
+    paymentStatus: clip(snapshot.paymentStatus, 30),
+    price: Number.isFinite(price) ? price : 0,
+    pickupDate: snapshot.pickupDate || undefined,
+    deliveryDate: snapshot.deliveryDate || undefined,
   };
 }
 
-export function snapshotFromBcOrder(order: BcSalesOrder): Partial<LoadPilotSnapshot> & {
-  externalDocumentNumber?: string;
-} {
-  const meta = parseMeta(order.sellToAddressLine2);
+export function snapshotFromBcLoad(record: BcLoadRecord): Partial<LoadPilotSnapshot> {
   return {
-    loadId: loadIdFromExternal(order.externalDocumentNumber) || "",
-    loadNumber: meta.loadNumber || "",
-    pickupAddress: order.sellToAddressLine1 || "",
-    pickupCity: order.sellToCity || "",
-    pickupState: order.sellToState || "",
-    pickupPincode: order.sellToPostCode || "",
-    dropoffAddress: order.shipToAddressLine1 || "",
-    dropoffCity: order.shipToCity || "",
-    dropoffState: order.shipToState || "",
-    dropoffPincode: order.shipToPostCode || "",
-    loadStatus: meta.loadStatus || "",
-    tripType: (meta.tripType as TripType) || undefined,
-    driverName: order.shipToContact || "",
-    paymentStatus: parsePaymentStatus(meta.paymentStatus || order.yourReference),
-    advanceReleased: meta.advanceReleased || false,
-    shipperName: order.shipToName || order.customerName || "",
-    phone: order.phoneNumber || "",
-    pickupDate: order.orderDate || null,
-    deliveryDate: order.requestedDeliveryDate || null,
-    externalDocumentNumber: order.externalDocumentNumber || undefined,
+    loadId: record.loadId || "",
+    loadNumber: record.loadNumber || "",
+    shipperId: record.shipperId || "",
+    pickupAddress: record.pickupAddress || "",
+    pickupCity: record.pickupCity || "",
+    pickupState: record.pickupState || "",
+    pickupPincode: record.pickupPincode || "",
+    dropoffAddress: record.dropoffAddress || "",
+    dropoffCity: record.dropoffCity || "",
+    dropoffState: record.dropoffState || "",
+    dropoffPincode: record.dropoffPincode || "",
+    loadStatus: record.loadStatus || "",
+    tripType: (record.tripType as TripType) || undefined,
+    driverName: record.driverName || "",
+    paymentStatus: parsePaymentStatus(record.paymentStatus),
+    shipperName: record.shipperName || "",
+    pickupDate: record.pickupDate || null,
+    deliveryDate: record.deliveryDate || null,
+    price: record.price == null ? "" : String(record.price),
   };
 }
 
@@ -209,13 +204,13 @@ export function diffSnapshots(
   bc: Partial<LoadPilotSnapshot>,
 ): string[] {
   const fields: Array<keyof LoadPilotSnapshot> = [
+    "loadNumber",
     "pickupCity",
     "dropoffCity",
     "loadStatus",
     "tripType",
     "driverName",
     "paymentStatus",
-    "advanceReleased",
   ];
   const mismatches: string[] = [];
   for (const field of fields) {

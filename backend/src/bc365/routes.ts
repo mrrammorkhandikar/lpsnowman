@@ -59,6 +59,13 @@ export function registerBc365Routes(app: Express): void {
       const user = await requireBc365Admin(req, res);
       if (!user) return;
       const result = await fullPushToBc(user.id);
+      if (result.errorCount > 0) {
+        const first = (result.report.lastError || "Business Central rejected the load rows.").toString();
+        return res.status(409).json({
+          error: first,
+          ...result,
+        });
+      }
       res.json(result);
     } catch (error) {
       console.error("BC 365 sync error:", error);

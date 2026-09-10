@@ -161,11 +161,23 @@ export async function apiDelete(path: string): Promise<Response> {
  * Helper to parse JSON response with error handling
  */
 export async function parseJsonResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => response.statusText);
-    throw new Error(`API Error ${response.status}: ${errorText}`);
+  const errorText = await response.text().catch(() => response.statusText);
+  let payload: unknown = null;
+  if (errorText) {
+    try {
+      payload = JSON.parse(errorText);
+    } catch {
+      payload = errorText;
+    }
   }
-  return response.json();
+  if (!response.ok) {
+    const message =
+      typeof payload === "object" && payload && "error" in payload
+        ? String((payload as { error: unknown }).error)
+        : errorText || response.statusText;
+    throw new Error(message);
+  }
+  return payload as T;
 }
 
 /**

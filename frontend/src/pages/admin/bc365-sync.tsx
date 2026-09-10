@@ -41,6 +41,7 @@ type SyncMismatch = {
   source: "mismatch" | "missing_on_bc" | "extra_on_bc";
   paymentStatusOurs?: string;
   paymentStatusBc?: string;
+  lastError?: string;
 };
 
 type SyncStatus = {
@@ -96,7 +97,7 @@ export default function AdminBc365SyncPage() {
       return parseJsonResponse(res);
     },
     onSuccess: () => {
-      toast({ title: "Sync started", description: "Portal loads were pushed to Business Central." });
+      toast({ title: "Sync finished", description: "Portal loads were pushed to Business Central." });
       invalidate();
     },
     onError: (err: Error) => {
@@ -131,7 +132,7 @@ export default function AdminBc365SyncPage() {
       return parseJsonResponse(res);
     },
     onSuccess: () => {
-      toast({ title: "BC load data erased", description: "LoadPilot sales orders were deleted on BC 365." });
+      toast({ title: "BC load data erased", description: "LoadPilot Loads rows were deleted on BC 365." });
       setWipeOpen(false);
       setConfirmText("");
       invalidate();
@@ -217,7 +218,8 @@ export default function AdminBc365SyncPage() {
             Connection
           </CardTitle>
           <CardDescription>
-            Environment {data?.environment || "unknown"} · company {data?.companyName || "not selected yet"}. Customer {data?.customerNumber || "LoadPilot (created on first sync)"}.
+            Environment {data?.environment || "unknown"} · company {data?.companyName || "not selected yet"}.
+            Rows go to the LoadPilot Loads table, not Sales Orders.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -259,16 +261,29 @@ export default function AdminBc365SyncPage() {
         </CardContent>
       </Card>
 
+      {syncMutation.error && (
+        <Card className="border-destructive/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-destructive">Sync did not write to BC</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm">{(syncMutation.error as Error).message}</CardContent>
+        </Card>
+      )}
+
       {data?.lastError && (
         <Card className="border-destructive/40">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base text-destructive">Why it is not connected</CardTitle>
+            <CardTitle className="text-base text-destructive">
+              {data?.connected ? "Last sync error" : "Why it is not connected"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="text-sm space-y-2">
             <p>{data.lastError}</p>
             <p className="text-muted-foreground">
-              Env values look right (Production). The blocker is almost always the app not being
-              enabled inside Business Central, not the .env path.
+              The Sync button is working. Business Central is refusing to insert into the LoadPilot
+              Loads table until permission set LP Loads is assigned to the Microsoft Entra
+              application in TestEnv. Disable the card, add LP Loads, enable it, then sync again.
+              Ignore phone/Authenticator prompts unless VS Code is publishing the extension.
             </p>
           </CardContent>
         </Card>
@@ -278,10 +293,11 @@ export default function AdminBc365SyncPage() {
         <CardHeader>
           <CardTitle>Mismatched and extra records</CardTitle>
           <CardDescription>
-            {data?.mismatchedCount ?? 0} field mismatches. Use erase + full sync to replace leftover BC data with this portal.
+            {data?.mismatchedCount ?? 0} field mismatches. {data?.missingOnBc ?? 0} portal loads are
+            not on BC yet. Every portal load is listed below.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading comparison…</p>
           ) : !data?.mismatches?.length ? (
@@ -295,6 +311,7 @@ export default function AdminBc365SyncPage() {
                   <TableHead>Fields</TableHead>
                   <TableHead>Payment here</TableHead>
                   <TableHead>Payment on BC</TableHead>
+                  <TableHead>BC error</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -305,6 +322,9 @@ export default function AdminBc365SyncPage() {
                     <TableCell>{row.fields.join(", ")}</TableCell>
                     <TableCell>{row.paymentStatusOurs || "—"}</TableCell>
                     <TableCell>{row.paymentStatusBc || "—"}</TableCell>
+                    <TableCell className="max-w-md whitespace-normal text-destructive">
+                      {row.lastError || "—"}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -318,8 +338,8 @@ export default function AdminBc365SyncPage() {
           <DialogHeader>
             <DialogTitle>Erase LoadPilot data on BC 365?</DialogTitle>
             <DialogDescription>
-              This deletes LoadPilot-tagged sales orders on the sandbox company, including leftover
-              records from other deployments. It does not delete this portal’s database. Type{" "}
+              This deletes rows on the LoadPilot Loads page in this BC environment. It does not
+              delete this portal’s database. Type{" "}
               <span className="font-semibold">{CONFIRM_PHRASE}</span> to confirm.
             </DialogDescription>
           </DialogHeader>

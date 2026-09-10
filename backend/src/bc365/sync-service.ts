@@ -1,21 +1,21 @@
 import { storage } from "../storage";
 import { financePaymentStatuses, type Load } from "@shared/schema";
-import { BC_CUSTOMER_NAME, getBc365Config } from "./config";
-import { bc365Client, Bc365Error, explainBc365Error, type BcSalesOrder } from "./client";
+import { getBc365Config } from "./config";
+import { bc365Client, Bc365Error, explainBc365Error, type BcLoadRecord } from "./client";
 import {
   buildSnapshot,
-  compactLoadId,
   diffSnapshots,
-  loadIdFromExternal,
+  normalizeLoadId,
   parsePaymentStatus,
-  snapshotFromBcOrder,
+  snapshotFromBcLoad,
   snapshotHash,
-  toSalesOrderBody,
+  toLoadBody,
   type LoadPilotSnapshot,
 } from "./mapper";
 import {
   clearBcLoadMaps,
   deleteBcLoadMap,
+  getAllBcLoadMaps,
   getBcLoadMap,
   getBcSettings,
   insertBcSyncRun,
@@ -48,76 +48,26 @@ async function buildLoadSnapshot(load: Load): Promise<LoadPilotSnapshot> {
 async function resolveCompanyId(): Promise<{ id: string; name: string }> {
   const config = getBc365Config();
   const settings = await getBcSettings();
-  if (config.companyId) {
-    const companies = await bc365Client.listCompanies();
-    const match = companies.find((c) => c.id === config.companyId);
-    const name = match?.displayName || match?.name || settings.companyName || config.companyId;
-    if (settings.companyId !== config.companyId) {
-      await updateBcSettings({ companyId: config.companyId, companyName: name });
-    }
-    return { id: config.companyId, name };
-  }
-  if (settings.companyId) {
-    return { id: settings.companyId, name: settings.companyName || settings.companyId };
-  }
   const companies = await bc365Client.listCompanies();
   if (!companies.length) {
     throw new Bc365Error("No Business Central companies were returned for this environment");
   }
+  const pick = (id?: string | null) => companies.find((c) => c.id === id);
+  const preferredConfigured = pick(config.companyId);
+  const preferredSaved = pick(settings.companyId);
   const label = (c: { name: string; displayName?: string }) =>
     `${c.name} ${c.displayName || ""}`;
   const preferred =
+    preferredConfigured ||
+    preferredSaved ||
     companies.find((c) => /snowman|loadpilot|smartserve/i.test(label(c))) ||
     companies.find((c) => !/cronus/i.test(label(c))) ||
     companies[0];
   const name = preferred.displayName || preferred.name;
-  await updateBcSettings({ companyId: preferred.id, companyName: name });
+  if (settings.companyId !== preferred.id) {
+    await updateBcSettings({ companyId: preferred.id, companyName: name });
+  }
   return { id: preferred.id, name };
-}
-
-async function ensureCustomer(companyId: string): Promise<string> {
-  const settings = await getBcSettings();
-  if (settings.customerNumber) {
-    const existing = await bc365Client.listCustomers(
-      companyId,
-      `number eq '${settings.customerNumber.replace(/'/g, "''")}'`,
-    );
-    if (existing[0]) return existing[0].number;
-  }
-  const byName = await bc365Client.listCustomers(
-    companyId,
-    `displayName eq '${BC_CUSTOMER_NAME}'`,
-  );
-  if (byName[0]) {
-    await updateBcSettings({ customerNumber: byName[0].number });
-    return byName[0].number;
-  }
-  try {
-    const created = await bc365Client.createCustomer(companyId, {
-      displayName: BC_CUSTOMER_NAME,
-      number: "LOADPILOT",
-      type: "Company",
-    });
-    await updateBcSettings({ customerNumber: created.number });
-    return created.number;
-  } catch (error) {
-    const fallback = await bc365Client.listCustomers(companyId);
-    if (!fallback[0]) {
-      throw error;
-    }
-    await updateBcSettings({ customerNumber: fallback[0].number });
-    console.warn(
-      "[bc365] could not create LoadPilot customer; using existing",
-      fallback[0].number,
-      fallback[0].displayName,
-    );
-    return fallback[0].number;
-  }
-}
-
-function clipOrderNumber(snapshot: LoadPilotSnapshot): string {
-  const digits = snapshot.loadNumber.replace(/\D/g, "") || snapshot.loadId.replace(/-/g, "").slice(0, 8);
-  return `LP${digits}`.slice(0, 20);
 }
 
 function stripUndefined(body: Record<string, unknown>): Record<string, unknown> {
@@ -126,20 +76,24 @@ function stripUndefined(body: Record<string, unknown>): Record<string, unknown> 
   );
 }
 
-async function createOrUpdateOrder(
+async function createOrUpdateLoad(
   companyId: string,
-  customerNumber: string,
   snapshot: LoadPilotSnapshot,
-): Promise<BcSalesOrder> {
-  const body = stripUndefined(toSalesOrderBody(snapshot, customerNumber));
+): Promise<BcLoadRecord> {
+  const body = stripUndefined(toLoadBody(snapshot));
+  const bcKey = snapshot.loadId.trim().toUpperCase();
   const map = await getBcLoadMap(snapshot.loadId);
+  const tryUpdate = async (loadId: string) => {
+    const current = await bc365Client.getLoad(companyId, loadId);
+    const etag = current["@odata.etag"] || "*";
+    const { loadId: _key, ...patch } = body;
+    await bc365Client.updateLoad(companyId, loadId, patch, etag);
+    return (await bc365Client.getLoad(companyId, loadId)) || current;
+  };
+
   if (map?.bcOrderId) {
     try {
-      const current = await bc365Client.getSalesOrder(companyId, map.bcOrderId);
-      const etag = current["@odata.etag"] || "*";
-      const { customerNumber: _ignored, ...patch } = body;
-      await bc365Client.updateSalesOrder(companyId, map.bcOrderId, patch, etag);
-      return (await bc365Client.getSalesOrder(companyId, map.bcOrderId)) || current;
+      return await tryUpdate(bcKey);
     } catch (error) {
       if (!(error instanceof Bc365Error) || (error.status !== 404 && error.status !== 400)) {
         throw error;
@@ -148,37 +102,15 @@ async function createOrUpdateOrder(
     }
   }
 
-  const external = compactLoadId(snapshot.loadId);
-  const existing = await bc365Client.listSalesOrders(
+  const existing = await bc365Client.listLoads(
     companyId,
-    `externalDocumentNumber eq '${external}'`,
+    `loadId eq '${bcKey.replace(/'/g, "''")}'`,
   );
-  if (existing[0]) {
-    const current = await bc365Client.getSalesOrder(companyId, existing[0].id);
-    const etag = current["@odata.etag"] || "*";
-    const { customerNumber: _ignored, ...patch } = body;
-    await bc365Client.updateSalesOrder(companyId, current.id, patch, etag);
-    return bc365Client.getSalesOrder(companyId, current.id);
+  if (existing[0]?.loadId) {
+    return tryUpdate(existing[0].loadId);
   }
 
-  try {
-    return await bc365Client.createSalesOrder(companyId, {
-      ...body,
-      number: clipOrderNumber(snapshot),
-    });
-  } catch {
-    const minimal = {
-      customerNumber,
-      externalDocumentNumber: external,
-      number: clipOrderNumber(snapshot),
-    };
-    try {
-      return await bc365Client.createSalesOrder(companyId, minimal);
-    } catch {
-      const { number: _n, ...withoutNumber } = minimal;
-      return bc365Client.createSalesOrder(companyId, withoutNumber);
-    }
-  }
+  return bc365Client.createLoad(companyId, body);
 }
 
 export async function pushLoadToBc(loadId: string): Promise<{ ok: boolean; error?: string }> {
@@ -191,57 +123,33 @@ export async function pushLoadToBc(loadId: string): Promise<{ ok: boolean; error
   }
   try {
     const company = await resolveCompanyId();
-    const customerNumber = await ensureCustomer(company.id);
     const snapshot = await buildLoadSnapshot(load);
-    const order = await createOrUpdateOrder(company.id, customerNumber, snapshot);
+    const record = await createOrUpdateLoad(company.id, snapshot);
     await upsertBcLoadMap({
       loadId,
-      bcOrderId: order.id,
-      bcOrderNumber: order.number,
+      bcOrderId: record.loadId || snapshot.loadId,
+      bcOrderNumber: record.loadNumber || snapshot.loadNumber,
       payloadHash: snapshotHash(snapshot),
       lastError: null,
     });
     await updateBcSettings({ lastPushAt: new Date(), lastError: null });
     return { ok: true };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = explainBc365Error(error);
     const existing = await getBcLoadMap(loadId);
-    if (existing) {
-      await upsertBcLoadMap({
-        loadId,
-        bcOrderId: existing.bcOrderId,
-        lastError: message,
-      }).catch(() => undefined);
-    }
+    await upsertBcLoadMap({
+      loadId,
+      bcOrderId: existing?.bcOrderId || loadId,
+      lastError: message,
+    }).catch(() => undefined);
     await updateBcSettings({ lastError: message });
     console.error("[bc365] push failed", loadId, message);
     return { ok: false, error: message };
   }
 }
 
-export async function listTaggedSalesOrders(companyId: string): Promise<BcSalesOrder[]> {
-  const settings = await getBcSettings();
-  const orders: BcSalesOrder[] = [];
-  const seen = new Set<string>();
-  const filters = [
-    `startswith(externalDocumentNumber,'LP')`,
-    settings.customerNumber
-      ? `customerNumber eq '${settings.customerNumber.replace(/'/g, "''")}'`
-      : `customerName eq '${BC_CUSTOMER_NAME}'`,
-  ];
-  for (const filter of filters) {
-    try {
-      const batch = await bc365Client.listSalesOrders(companyId, filter);
-      for (const order of batch) {
-        if (seen.has(order.id)) continue;
-        seen.add(order.id);
-        orders.push(order);
-      }
-    } catch (error) {
-      console.warn("[bc365] list filter failed", filter, error);
-    }
-  }
-  return orders;
+export async function listBcLoads(companyId: string): Promise<BcLoadRecord[]> {
+  return bc365Client.listLoads(companyId);
 }
 
 export type SyncMismatch = {
@@ -251,6 +159,7 @@ export type SyncMismatch = {
   source: "mismatch" | "missing_on_bc" | "extra_on_bc";
   paymentStatusOurs?: string;
   paymentStatusBc?: string;
+  lastError?: string;
 };
 
 export type SyncStatusReport = {
@@ -295,6 +204,13 @@ export async function getConnectionPreview(): Promise<{
   try {
     await bc365Client.pingToken();
     const companies = await bc365Client.listCompanies();
+    const company =
+      companies.find((c) => /snowman|loadpilot|smartserve/i.test(`${c.name} ${c.displayName || ""}`)) ||
+      companies.find((c) => !/cronus/i.test(`${c.name} ${c.displayName || ""}`)) ||
+      companies[0];
+    if (company) {
+      await bc365Client.pingLoadsApi(company.id);
+    }
     return {
       configured: true,
       connected: true,
@@ -343,20 +259,23 @@ export async function compareSyncStatus(): Promise<SyncStatusReport> {
   if (!preview.connected) return empty;
 
   const company = await resolveCompanyId();
-  const bcOrders = await listTaggedSalesOrders(company.id);
-  const bcByLoadId = new Map<string, BcSalesOrder>();
+  const [bcLoads, maps] = await Promise.all([listBcLoads(company.id), getAllBcLoadMaps()]);
+  const errorByLoadId = new Map(
+    maps.map((m) => [normalizeLoadId(m.loadId), m.lastError || ""]),
+  );
+  const bcByLoadId = new Map<string, BcLoadRecord>();
   const extra: SyncMismatch[] = [];
-  for (const order of bcOrders) {
-    const loadId = loadIdFromExternal(order.externalDocumentNumber);
+  for (const record of bcLoads) {
+    const loadId = normalizeLoadId(record.loadId);
     if (loadId) {
-      bcByLoadId.set(loadId, order);
+      bcByLoadId.set(loadId, record);
     } else {
       extra.push({
-        loadId: order.id,
-        loadNumber: order.number || order.externalDocumentNumber || order.id,
+        loadId: record.id || "unknown",
+        loadNumber: record.loadNumber || record.id || "unknown",
         fields: ["unmapped"],
         source: "extra_on_bc",
-        paymentStatusBc: snapshotFromBcOrder(order).paymentStatus,
+        paymentStatusBc: snapshotFromBcLoad(record).paymentStatus,
       });
     }
   }
@@ -368,8 +287,8 @@ export async function compareSyncStatus(): Promise<SyncStatusReport> {
 
   for (const load of loads) {
     const snapshot = await buildLoadSnapshot(load);
-    const order = bcByLoadId.get(load.id);
-    if (!order) {
+    const record = bcByLoadId.get(normalizeLoadId(load.id));
+    if (!record) {
       missingOnBc += 1;
       mismatches.push({
         loadId: load.id,
@@ -377,11 +296,12 @@ export async function compareSyncStatus(): Promise<SyncStatusReport> {
         fields: ["missing"],
         source: "missing_on_bc",
         paymentStatusOurs: snapshot.paymentStatus,
+        lastError: errorByLoadId.get(normalizeLoadId(load.id)) || undefined,
       });
       continue;
     }
-    bcByLoadId.delete(load.id);
-    const bcSnap = snapshotFromBcOrder(order);
+    bcByLoadId.delete(normalizeLoadId(load.id));
+    const bcSnap = snapshotFromBcLoad(record);
     const fields = diffSnapshots(snapshot, bcSnap);
     if (fields.length === 0) {
       syncedCount += 1;
@@ -394,23 +314,29 @@ export async function compareSyncStatus(): Promise<SyncStatusReport> {
         source: "mismatch",
         paymentStatusOurs: snapshot.paymentStatus,
         paymentStatusBc: bcSnap.paymentStatus,
+        lastError: errorByLoadId.get(normalizeLoadId(load.id)) || undefined,
       });
     }
   }
 
-  for (const [loadId, order] of bcByLoadId) {
+  for (const [loadId, record] of bcByLoadId) {
     extra.push({
       loadId,
-      loadNumber: order.number || order.externalDocumentNumber || loadId,
+      loadNumber: record.loadNumber || loadId,
       fields: ["unknown_load"],
       source: "extra_on_bc",
-      paymentStatusBc: snapshotFromBcOrder(order).paymentStatus,
+      paymentStatusBc: snapshotFromBcLoad(record).paymentStatus,
     });
     mismatches.push(extra[extra.length - 1]);
   }
 
   const extraOnBc = mismatches.filter((m) => m.source === "extra_on_bc").length;
   const percentSynced = loads.length === 0 ? 100 : Math.round((syncedCount / loads.length) * 100);
+  const latestSettings = await getBcSettings();
+  const lastError = missingOnBc === 0 ? null : latestSettings.lastError;
+  if (missingOnBc === 0 && latestSettings.lastError) {
+    await updateBcSettings({ lastError: null });
+  }
 
   return {
     configured: true,
@@ -418,11 +344,11 @@ export async function compareSyncStatus(): Promise<SyncStatusReport> {
     environment: preview.environment,
     companyId: company.id,
     companyName: company.name,
-    customerNumber: (await getBcSettings()).customerNumber,
-    lastPushAt: settings.lastPushAt?.toISOString() ?? null,
-    lastPullAt: settings.lastPullAt?.toISOString() ?? null,
-    lastWipeAt: settings.lastWipeAt?.toISOString() ?? null,
-    lastError: settings.lastError,
+    customerNumber: null,
+    lastPushAt: latestSettings.lastPushAt?.toISOString() ?? null,
+    lastPullAt: latestSettings.lastPullAt?.toISOString() ?? null,
+    lastWipeAt: latestSettings.lastWipeAt?.toISOString() ?? null,
+    lastError,
     ourCount: loads.length,
     syncedCount,
     mismatchedCount,
@@ -473,13 +399,15 @@ export async function wipeBcLoadData(startedBy?: string) {
     startedBy,
   });
   const company = await resolveCompanyId();
-  const orders = await listTaggedSalesOrders(company.id);
+  const records = await listBcLoads(company.id);
   let errorCount = 0;
   const errors: string[] = [];
-  for (const order of orders) {
+  for (const record of records) {
+    const key = record.loadId;
+    if (!key) continue;
     try {
-      const current = await bc365Client.getSalesOrder(company.id, order.id);
-      await bc365Client.deleteSalesOrder(company.id, order.id, current["@odata.etag"] || "*");
+      const current = await bc365Client.getLoad(company.id, key);
+      await bc365Client.deleteLoad(company.id, key, current["@odata.etag"] || "*");
     } catch (error) {
       errorCount += 1;
       errors.push(error instanceof Error ? error.message : String(error));
@@ -489,23 +417,23 @@ export async function wipeBcLoadData(startedBy?: string) {
   await updateBcSettings({ lastWipeAt: new Date(), lastError: errorCount ? errors[0] : null });
   await updateBcSyncRun(run.id, {
     status: errorCount ? "completed_with_errors" : "completed",
-    extraOnBc: orders.length,
+    extraOnBc: records.length,
     errorCount,
-    details: { deletedAttempted: orders.length, errors: errors.slice(0, 50) },
+    details: { deletedAttempted: records.length, errors: errors.slice(0, 50) },
     finishedAt: new Date(),
   });
-  return { deletedAttempted: orders.length, errorCount, errors: errors.slice(0, 20) };
+  return { deletedAttempted: records.length, errorCount, errors: errors.slice(0, 20) };
 }
 
 export async function pullPaymentStatusFromBc(): Promise<{ updated: number; checked: number }> {
   if (!getBc365Config().enabled) return { updated: 0, checked: 0 };
   const company = await resolveCompanyId();
-  const orders = await listTaggedSalesOrders(company.id);
+  const records = await listBcLoads(company.id);
   let updated = 0;
-  for (const order of orders) {
-    const loadId = loadIdFromExternal(order.externalDocumentNumber);
+  for (const record of records) {
+    const loadId = normalizeLoadId(record.loadId);
     if (!loadId) continue;
-    const payment = parsePaymentStatus(snapshotFromBcOrder(order).paymentStatus);
+    const payment = parsePaymentStatus(snapshotFromBcLoad(record).paymentStatus);
     if (!financePaymentStatuses.includes(payment as (typeof financePaymentStatuses)[number])) {
       continue;
     }
@@ -524,7 +452,7 @@ export async function pullPaymentStatusFromBc(): Promise<{ updated: number; chec
     updated += 1;
   }
   await updateBcSettings({ lastPullAt: new Date() });
-  return { updated, checked: orders.length };
+  return { updated, checked: records.length };
 }
 
 export function startBc365PaymentPoller() {

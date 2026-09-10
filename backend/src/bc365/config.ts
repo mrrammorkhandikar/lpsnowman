@@ -36,3 +36,7 @@ export function getBc365Config(): Bc365Config {
 export function bcApiRoot(config = getBc365Config()): string {
   return `${config.baseUrl}/${config.tenantId}/${encodeURIComponent(config.environment)}/api/v2.0`;
 }
+
+export function bcLoadsApiRoot(config = getBc365Config()): string {
+  return `${config.baseUrl}/${config.tenantId}/${encodeURIComponent(config.environment)}/api/loadpilot/integration/v1.0`;
+}
