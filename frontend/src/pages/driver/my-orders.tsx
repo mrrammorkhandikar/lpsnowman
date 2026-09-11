@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
   Package, MapPin, Calendar, Clock, ArrowRight,
-  Loader2, RefreshCw, Truck, DollarSign, CheckCircle,
+  Loader2, RefreshCw, Truck, CheckCircle,
   ClipboardList, ChevronRight, User,
   Phone, Building2, Weight, FileText, Hash,
   CircleDot, Info
@@ -59,10 +59,6 @@ function alreadyInAddress(full: string | null | undefined, part: string | null |
     br: ["bihar"],
   };
   return (aliases[needle] || []).some((alias) => hay.includes(alias));
-}
-
-function formatCurrency(amount: number): string {
-  return `Rs. ${amount.toLocaleString("en-IN")}`;
 }
 
 function formatLoadId(load: OrderLoad): string {
@@ -340,10 +336,6 @@ export default function DriverMyOrdersPage() {
     (o) => o.status === "cancelled"
   );
 
-  const totalRevenue = orders
-    .filter((o) => ["delivered", "closed"].includes(o.status || ""))
-    .reduce((sum, o) => sum + parseFloat(o.finalPrice || "0"), 0);
-
   const filteredOrders = activeTab === "active" ? activeOrders
     : activeTab === "completed" ? completedOrders
     : activeTab === "cancelled" ? cancelledOrders
@@ -401,7 +393,7 @@ export default function DriverMyOrdersPage() {
         </Button>
       </div>
 
-      <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-3">
         <Card data-testid="stat-total-orders">
           <CardContent className="pt-4 sm:pt-6 p-3 sm:p-6">
             <div className="flex items-center gap-2 sm:gap-3">
@@ -437,19 +429,6 @@ export default function DriverMyOrdersPage() {
               <div className="min-w-0">
                 <p className="text-xs sm:text-sm text-muted-foreground truncate">Completed</p>
                 <p className="text-xl sm:text-2xl font-bold">{completedOrders.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card data-testid="stat-total-revenue">
-          <CardContent className="pt-4 sm:pt-6 p-3 sm:p-6">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="p-1.5 sm:p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
-                <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs sm:text-sm text-muted-foreground truncate">Revenue</p>
-                <p className="text-xl sm:text-2xl font-bold truncate">{formatCurrency(totalRevenue)}</p>
               </div>
             </div>
           </CardContent>
@@ -509,8 +488,6 @@ export default function DriverMyOrdersPage() {
 }
 
 function OrderCard({ order, onClick }: { order: OrderLoad; onClick: () => void }) {
-  const price = parseFloat(order.finalPrice || "0");
-
   return (
     <Card
       className="hover:shadow-md transition-all cursor-pointer hover:border-primary/30 group"
@@ -530,17 +507,7 @@ function OrderCard({ order, onClick }: { order: OrderLoad; onClick: () => void }
                 Direct Assignment
               </Badge>
             </div>
-            
-            {/* Price Section - Top Right on Desktop, Below on Mobile */}
-            <div className="flex items-center justify-between sm:justify-end gap-3">
-              <div className="text-left sm:text-right space-y-1">
-                <p className="text-xs text-muted-foreground">Your Payout</p>
-                <p className="text-lg sm:text-xl font-bold text-primary" data-testid={`text-price-${order.id}`}>
-                  {price > 0 ? formatCurrency(price) : "---"}
-                </p>
-              </div>
-              <ChevronRight className="h-5 w-5 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity shrink-0" />
-            </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity shrink-0 self-start sm:mt-1" />
           </div>
 
           {/* Route Section */}
@@ -601,14 +568,6 @@ function OrderCard({ order, onClick }: { order: OrderLoad; onClick: () => void }
             </div>
 
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-              {order.carrierAdvancePercent && Number(order.carrierAdvancePercent) > 0 && (
-                <div className="text-left sm:text-right">
-                  <p className="text-xs text-muted-foreground">Advance ({order.carrierAdvancePercent}%)</p>
-                  <p className="text-sm font-medium text-green-600">
-                    {formatCurrency(Math.round(price * Number(order.carrierAdvancePercent) / 100))}
-                  </p>
-                </div>
-              )}
               {order.pickupId && (
                 <Badge variant="outline" className="font-mono text-xs">
                   ID: {order.pickupId}
