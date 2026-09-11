@@ -5,7 +5,7 @@ import {
   Package, MapPin, Calendar, Clock, ArrowRight,
   Loader2, RefreshCw, Truck, DollarSign, CheckCircle,
   ClipboardList, ChevronRight, User,
-  Phone, Building2, Weight, FileText, Hash, IndianRupee,
+  Phone, Building2, Weight, FileText, Hash,
   CircleDot, Info
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +13,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -26,18 +25,6 @@ import type { Load } from "@shared/schema";
 import { format } from "date-fns";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
-type FleetPriceBreakdown = {
-  type?: string;
-  fuel?: number;
-  tolls?: number;
-  maintenance?: number;
-  miscellaneous?: number;
-  proratedSalaryPerTrip?: number;
-  totalTripCost?: number;
-  costPerKm?: number;
-  distance?: number;
-};
-
 type OrderLoad = Load & {
   shipperName?: string;
   shipperPhone?: string | null;
@@ -45,7 +32,6 @@ type OrderLoad = Load & {
   shipmentStatus?: string | null;
   assignedBy?: string;
   assignedAt?: string | Date;
-  priceBreakdown?: FleetPriceBreakdown | null;
 };
 
 function alreadyInAddress(full: string | null | undefined, part: string | null | undefined): boolean {
@@ -73,11 +59,6 @@ function alreadyInAddress(full: string | null | undefined, part: string | null |
     br: ["bihar"],
   };
   return (aliases[needle] || []).some((alias) => hay.includes(alias));
-}
-
-function formatMoney(amount: number | null | undefined): string | null {
-  if (amount == null || Number.isNaN(Number(amount))) return null;
-  return formatCurrency(Number(amount));
 }
 
 function formatCurrency(amount: number): string {
@@ -135,19 +116,6 @@ function DetailRow({ icon: Icon, label, value, className }: { icon?: any; label:
 
 function OrderDetailSheet({ order, open, onClose }: { order: OrderLoad | null; open: boolean; onClose: () => void }) {
   if (!order) return null;
-
-  const price = parseFloat(order.finalPrice || "0");
-  const carrierAdvPct = Number(order.carrierAdvancePercent || 0);
-  const carrierAdvAmt = carrierAdvPct > 0 ? Math.round(price * carrierAdvPct / 100) : 0;
-  const breakdown = order.priceBreakdown;
-  const hasFleetCosts =
-    !!breakdown &&
-    (breakdown.type === "my_fleet" ||
-      breakdown.totalTripCost != null ||
-      breakdown.fuel != null ||
-      breakdown.costPerKm != null);
-  const tripDistanceKm =
-    Number(breakdown?.distance ?? order.distance ?? 0) || 0;
 
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -229,34 +197,6 @@ function OrderDetailSheet({ order, open, onClose }: { order: OrderLoad | null; o
                       )}
                     </div>
                   </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border bg-card p-3 sm:p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <IndianRupee className="h-4 w-4 text-primary" />
-                  <h3 className="text-sm font-semibold">Pricing</h3>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-sm text-muted-foreground">Your Payout</span>
-                    <span className="text-lg sm:text-xl font-bold text-primary" data-testid="text-detail-price">
-                      {price > 0 ? formatCurrency(price) : "---"}
-                    </span>
-                  </div>
-                  {carrierAdvPct > 0 && (
-                    <>
-                      <Separator className="my-2" />
-                      <div className="flex justify-between items-center py-1">
-                        <span className="text-sm text-muted-foreground">Carrier Advance ({carrierAdvPct}%)</span>
-                        <span className="text-sm font-semibold text-green-600">{formatCurrency(carrierAdvAmt)}</span>
-                      </div>
-                      <div className="flex justify-between items-center py-1">
-                        <span className="text-sm text-muted-foreground">Balance Due</span>
-                        <span className="text-sm font-medium">{formatCurrency(price - carrierAdvAmt)}</span>
-                      </div>
-                    </>
-                  )}
                 </div>
               </div>
 
@@ -356,88 +296,6 @@ function OrderDetailSheet({ order, open, onClose }: { order: OrderLoad | null; o
                         <div>
                           <p className="text-xs text-muted-foreground">Shipment Status</p>
                           {getStatusBadge(order.shipmentStatus)}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {hasFleetCosts && (
-                <div className="rounded-lg border bg-card p-3 sm:p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Truck className="h-4 w-4 text-primary" />
-                    <h3 className="text-sm font-semibold">Trip Costs</h3>
-                  </div>
-                  <div className="space-y-2">
-                    {formatMoney(breakdown?.fuel) && (
-                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                        <span className="text-sm text-muted-foreground">Fuel</span>
-                        <span className="text-sm font-medium">{formatMoney(breakdown?.fuel)}</span>
-                      </div>
-                    )}
-                    {formatMoney(breakdown?.tolls) && (
-                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                        <span className="text-sm text-muted-foreground">Tolls</span>
-                        <span className="text-sm font-medium">{formatMoney(breakdown?.tolls)}</span>
-                      </div>
-                    )}
-                    {formatMoney(breakdown?.proratedSalaryPerTrip) && (
-                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                        <span className="text-sm text-muted-foreground">Driver Pay</span>
-                        <span className="text-sm font-medium">{formatMoney(breakdown?.proratedSalaryPerTrip)}</span>
-                      </div>
-                    )}
-                    {formatMoney(breakdown?.maintenance) && (
-                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                        <span className="text-sm text-muted-foreground">Maintenance</span>
-                        <span className="text-sm font-medium">{formatMoney(breakdown?.maintenance)}</span>
-                      </div>
-                    )}
-                    {formatMoney(breakdown?.miscellaneous) && (
-                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                        <span className="text-sm text-muted-foreground">Miscellaneous</span>
-                        <span className="text-sm font-medium">{formatMoney(breakdown?.miscellaneous)}</span>
-                      </div>
-                    )}
-                    {formatMoney(breakdown?.totalTripCost) && (
-                      <div className="pt-2 border-t">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">Total Expenses</span>
-                          <span className="text-sm font-bold">{formatMoney(breakdown?.totalTripCost)}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {hasFleetCosts && (tripDistanceKm > 0 || breakdown?.costPerKm != null) && (
-                <div className="rounded-lg border bg-card p-3 sm:p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <DollarSign className="h-4 w-4 text-primary" />
-                    <h3 className="text-sm font-semibold">Cost Per KM</h3>
-                  </div>
-                  <div className="space-y-2">
-                    {formatMoney(breakdown?.totalTripCost) && (
-                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                        <span className="text-sm text-muted-foreground">Total Expenses</span>
-                        <span className="text-sm font-medium">{formatMoney(breakdown?.totalTripCost)}</span>
-                      </div>
-                    )}
-                    {tripDistanceKm > 0 && (
-                      <div className="flex items-center justify-between p-2 bg-muted/50 rounded-lg">
-                        <span className="text-sm text-muted-foreground">Distance</span>
-                        <span className="text-sm font-medium">{tripDistanceKm} KM</span>
-                      </div>
-                    )}
-                    {breakdown?.costPerKm != null && (
-                      <div className="pt-2 border-t">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium">Cost Per KM</span>
-                          <span className="text-sm font-bold text-primary">
-                            Rs. {Number(breakdown.costPerKm).toFixed(2)}
-                          </span>
                         </div>
                       </div>
                     )}
