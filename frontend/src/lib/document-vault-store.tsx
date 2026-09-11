@@ -14,6 +14,7 @@ export type DocumentCategory =
   | "weight_slip" 
   | "photos" 
   | "verification"
+  | "receipts"
   | "other";
 
 export type DocumentStatus = "active" | "expiring_soon" | "expired";
@@ -61,6 +62,7 @@ export const documentCategoryLabels: Record<DocumentCategory, string> = {
   weight_slip: "Weight Slip",
   photos: "Photos",
   verification: "Verification Documents",
+  receipts: "Trip Receipts",
   other: "Other",
 };
 
@@ -157,6 +159,14 @@ export const documentTemplates: DocumentTemplate[] = [
     hasExpiry: false,
     requiredFields: [],
     suggestedTags: ["photos", "inspection", "condition"],
+  },
+  {
+    id: "receipts",
+    name: "Trip Receipts",
+    description: "Fuel, toll, maintenance, and other trip receipts",
+    hasExpiry: false,
+    requiredFields: ["loadId"],
+    suggestedTags: ["receipt", "fuel", "toll"],
   },
   {
     id: "other",

@@ -77,6 +77,7 @@ function categoryToShipperApiType(category: DocumentCategory): string {
     rc: "other",
     fitness: "other",
     license: "other",
+    receipts: "other_receipt",
   };
   return map[category] ?? "other";
 }
@@ -122,7 +123,7 @@ const isDisplayableUrl = (url: string | undefined): boolean => {
 
 // Shipper-specific document categories (excluding carrier documents)
 const shipperDocumentCategories: DocumentCategory[] = [
-  "pod", "invoice", "lr", "eway_bill", "photos", "verification", "other"
+  "pod", "invoice", "lr", "eway_bill", "photos", "receipts", "verification", "other"
 ];
 
 // Folder configuration for shipper document categories
@@ -196,6 +197,13 @@ const documentFolders: Partial<Record<DocumentCategory, {
     bgColor: "bg-gray-100 dark:bg-gray-900/30",
     description: "Miscellaneous supporting documents",
   },
+  receipts: {
+    label: "Trip Receipts",
+    icon: Receipt,
+    color: "text-amber-600 dark:text-amber-400",
+    bgColor: "bg-amber-100 dark:bg-amber-900/30",
+    description: "Fuel, toll, maintenance, and other trip receipts",
+  },
 };
 
 const shipperCategoryLabels: Record<string, string> = {
@@ -207,6 +215,7 @@ const shipperCategoryLabels: Record<string, string> = {
   weight_slip: "Weight Slip",
   photos: "Photos",
   verification: "Verification Document",
+  receipts: "Trip Receipts",
   other: "Other",
 };
 
@@ -221,6 +230,12 @@ const apiDocTypeToCategory: Record<string, DocumentCategory> = {
   weight_slip: "weight_slip",
   bol: "bol",
   other: "other",
+  receipts: "receipts",
+  receipt: "receipts",
+  fuel_receipt: "receipts",
+  toll_receipt: "receipts",
+  maintenance_receipt: "receipts",
+  other_receipt: "receipts",
   gst_certificate: "verification",
   pan_card: "verification",
   incorporation_certificate: "verification",
@@ -519,6 +534,12 @@ export default function DocumentsPage() {
         lr_copy: "Verification Document",
         alternative_authorization: "Verification Document",
         other: "Other",
+        receipts: "Trip Receipts",
+        receipt: "Trip Receipts",
+        fuel_receipt: "Trip Receipts",
+        toll_receipt: "Trip Receipts",
+        maintenance_receipt: "Trip Receipts",
+        other_receipt: "Trip Receipts",
       };
       const categoryName = categoryMapping[docType] || docType || "Document";
       

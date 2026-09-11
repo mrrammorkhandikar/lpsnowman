@@ -32,6 +32,13 @@ import { ShipmentMap } from "@/components/shipment-map";
 import { buildFullAddress } from "@/lib/address-utils";
 import { computeRouteDistanceKmEstimate } from "@/lib/route-distance";
 import { uploadFileWithPresignedFallback } from "@/hooks/use-upload";
+import {
+  RECEIPT_CATEGORIES,
+  getAllReceiptDocuments,
+  getReceiptsForCategory,
+  normalizeReceiptUploadType,
+  type ReceiptCategoryKey,
+} from "@/lib/receipt-document-types";
 
 const documentTypeToLabel: Record<string, string> = {
   lr_consignment: "LR / Consignment Note",
@@ -40,6 +47,10 @@ const documentTypeToLabel: Record<string, string> = {
   pod: "Proof of Delivery (POD)",
   invoice: "Invoice",
   receipts: "Receipts",
+  fuel_receipt: "Fuel Receipt",
+  toll_receipt: "Toll Receipt",
+  maintenance_receipt: "Maintenance Receipt",
+  other_receipt: "Other Receipt",
   other: "Other Document",
 };
 
@@ -50,6 +61,10 @@ const labelToDocumentType: Record<string, string> = {
   "Proof of Delivery (POD)": "pod",
   "Invoice": "invoice",
   "Receipts": "receipts",
+  "Fuel Receipt": "fuel_receipt",
+  "Toll Receipt": "toll_receipt",
+  "Maintenance Receipt": "maintenance_receipt",
+  "Other Receipt": "other_receipt",
   "Other Document": "other",
 };
 
@@ -211,6 +226,8 @@ export default function TripsPage() {
   const [currentReceiptIndex, setCurrentReceiptIndex] = useState(0);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedDocType, setSelectedDocType] = useState<string>("lr_consignment");
+  const [selectedReceiptCategory, setSelectedReceiptCategory] = useState<ReceiptCategoryKey | "">("");
+  const [requireReceiptCategory, setRequireReceiptCategory] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [tripSortOrder, setTripSortOrder] = useState<"newest" | "oldest" | "status">("newest");
   
@@ -483,7 +500,9 @@ export default function TripsPage() {
       toast({ title: "Document Uploaded", description: "Document has been shared with the shipper" });
       setUploadingDocType(null);
       setSelectedFile(null);
-      setSelectedDocType("");
+      setSelectedDocType("lr_consignment");
+      setSelectedReceiptCategory("");
+      setRequireReceiptCategory(false);
       setUploadDialogOpen(false);
       setCameraMode(false);
       setCapturedImage(null);
@@ -513,7 +532,28 @@ export default function TripsPage() {
 
   function getUploadedDocuments(docLabel: string): ShipmentDocument[] {
     const docType = labelToDocumentType[docLabel];
+    if (docType === "receipts") {
+      return getAllReceiptDocuments(shipmentDocuments);
+    }
     return shipmentDocuments.filter(d => d.documentType === docType);
+  }
+
+  function resolveUploadDocumentType(): string {
+    if (selectedDocType === "receipts" || selectedDocType === "receipt") {
+      if (requireReceiptCategory && selectedReceiptCategory) {
+        return selectedReceiptCategory;
+      }
+      return selectedReceiptCategory || normalizeReceiptUploadType(selectedDocType);
+    }
+    return selectedDocType;
+  }
+
+  function openReceiptUpload(category: ReceiptCategoryKey | "" = "") {
+    setSelectedDocType("receipts");
+    setSelectedReceiptCategory(category);
+    setRequireReceiptCategory(true);
+    setSelectedFile(null);
+    setUploadDialogOpen(true);
   }
 
   // Camera functions
@@ -605,9 +645,17 @@ export default function TripsPage() {
           
           // Auto-upload if document type is selected
           if (selectedDocType && shipmentId) {
+            if (requireReceiptCategory && !selectedReceiptCategory) {
+              toast({
+                title: "Select Receipt Type",
+                description: "Choose Fuel, Toll, Maintenance, or Other before uploading.",
+                variant: "destructive",
+              });
+              return;
+            }
             console.log("[DriverTrips][Camera] Auto-uploading captured image...");
             uploadMutation.mutate({ 
-              documentType: selectedDocType,
+              documentType: resolveUploadDocumentType(),
               file: file,
             });
             setUploadDialogOpen(false);
@@ -1271,7 +1319,7 @@ export default function TripsPage() {
                             Trip Receipts
                           </CardTitle>
                           <CardDescription className="text-xs sm:text-sm">
-                            Upload and manage multiple receipts for this trip
+                            Choose a receipt type when uploading. Multiple receipts can be added to each category.
                           </CardDescription>
                         </CardHeader>
                         <CardContent className="px-3 sm:px-6 pb-3 sm:pb-6">
@@ -1286,88 +1334,71 @@ export default function TripsPage() {
                             </div>
                           ) : (
                             <>
-                              <div className="space-y-3">
-                                {getUploadedDocuments("Receipts").length > 0 ? (
-                                  <>
-                                    <div className="space-y-2">
-                                      {getUploadedDocuments("Receipts").map((receipt, index) => (
-                                        <div 
-                                          key={receipt.id}
-                                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 p-2.5 sm:p-3 bg-muted/50 rounded-lg border border-green-200 dark:border-green-800"
-                                          data-testid={`receipt-item-${index}`}
+                              <div className="space-y-4">
+                                {RECEIPT_CATEGORIES.map((category) => {
+                                  const receipts = getReceiptsForCategory(shipmentDocuments, category.key);
+                                  return (
+                                    <div key={category.key} className="rounded-lg border p-3 space-y-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <h4 className="text-sm font-medium">{category.label}</h4>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-7 text-xs"
+                                          onClick={() => openReceiptUpload(category.key)}
+                                          disabled={!shipmentId}
+                                          data-testid={`button-upload-${category.key}`}
                                         >
-                                          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-                                            <div className="h-7 w-7 sm:h-8 sm:w-8 rounded flex items-center justify-center flex-shrink-0 bg-green-100 dark:bg-green-900/30">
-                                              <Check className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-green-600" />
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                              <p className="font-medium text-xs sm:text-sm truncate">Receipt #{index + 1}</p>
-                                              <p className="text-xs text-muted-foreground truncate">
-                                                {receipt.createdAt ? format(new Date(receipt.createdAt), "MMM d, h:mm a") : "Recently uploaded"}
-                                              </p>
-                                            </div>
-                                          </div>
-                                          <div className="flex items-center gap-1.5 sm:gap-2 justify-end sm:justify-start flex-shrink-0">
-                                            <Badge variant="outline" className="text-green-600 border-green-200 dark:border-green-800 text-xs">
-                                              Shared
-                                            </Badge>
-                                            <Button
-                                              size="icon"
-                                              variant="ghost"
-                                              onClick={() => {
-                                                setSelectedDocument({ type: "Receipt", image: receipt.fileUrl || "" });
-                                                setDocumentViewerOpen(true);
-                                              }}
-                                              data-testid={`button-view-receipt-${index}`}
-                                              className="h-8 w-8"
+                                          <Upload className="h-3 w-3 mr-1" />
+                                          Upload
+                                        </Button>
+                                      </div>
+                                      {receipts.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground">No files uploaded yet</p>
+                                      ) : (
+                                        <div className="space-y-2">
+                                          {receipts.map((receipt, index) => (
+                                            <div
+                                              key={receipt.id}
+                                              className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 p-2.5 bg-muted/50 rounded-lg border border-green-200 dark:border-green-800"
+                                              data-testid={`receipt-item-${category.key}-${index}`}
                                             >
-                                              <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                                            </Button>
-                                          </div>
+                                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                <div className="h-7 w-7 rounded flex items-center justify-center flex-shrink-0 bg-green-100 dark:bg-green-900/30">
+                                                  <Check className="h-3.5 w-3.5 text-green-600" />
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                  <p className="font-medium text-xs sm:text-sm truncate">
+                                                    {category.label} #{index + 1}
+                                                  </p>
+                                                  <p className="text-xs text-muted-foreground truncate">
+                                                    {receipt.createdAt ? format(new Date(receipt.createdAt), "MMM d, h:mm a") : "Recently uploaded"}
+                                                  </p>
+                                                </div>
+                                              </div>
+                                              <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                  setSelectedDocument({ type: category.label, image: receipt.fileUrl || "" });
+                                                  setDocumentViewerOpen(true);
+                                                }}
+                                                data-testid={`button-view-receipt-${category.key}-${index}`}
+                                                className="h-8 w-8"
+                                              >
+                                                <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                                              </Button>
+                                            </div>
+                                          ))}
                                         </div>
-                                      ))}
+                                      )}
                                     </div>
-                                    <div className="pt-2 border-t">
-                                      <Button
-                                        size="sm"
-                                        className="w-full"
-                                        onClick={() => {
-                                          setSelectedDocType("receipts");
-                                          setUploadDialogOpen(true);
-                                        }}
-                                        disabled={!shipmentId}
-                                        data-testid="button-add-receipt"
-                                      >
-                                        <Upload className="h-4 w-4 mr-2" />
-                                        Add Another Receipt
-                                      </Button>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="flex flex-col items-center justify-center py-8 sm:py-12 text-center">
-                                    <FileText className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground mb-3 sm:mb-4" />
-                                    <h4 className="font-medium mb-2 text-sm sm:text-base">No Receipts Yet</h4>
-                                    <p className="text-xs sm:text-sm text-muted-foreground mb-4 max-w-sm">
-                                      Upload receipts to share with the shipper. You can upload multiple receipts for this trip.
-                                    </p>
-                                    <Button
-                                      size="sm"
-                                      onClick={() => {
-                                        setSelectedDocType("receipts");
-                                        setUploadDialogOpen(true);
-                                      }}
-                                      disabled={!shipmentId}
-                                      data-testid="button-upload-first-receipt"
-                                    >
-                                      <Upload className="h-4 w-4 mr-2" />
-                                      Upload Receipt
-                                    </Button>
-                                  </div>
-                                )}
+                                  );
+                                })}
                               </div>
-                              {getUploadedDocuments("Receipts").length > 0 && (
+                              {getAllReceiptDocuments(shipmentDocuments).length > 0 && (
                                 <p className="text-xs text-muted-foreground mt-3 sm:mt-4 text-center">
-                                  {getUploadedDocuments("Receipts").length} receipt(s) shared with shipper
+                                  {getAllReceiptDocuments(shipmentDocuments).length} receipt(s) shared with shipper
                                 </p>
                               )}
                               {!shipmentId && (
@@ -1399,7 +1430,12 @@ export default function TripsPage() {
                     </Button>
                     <Button 
                       variant="outline"
-                      onClick={() => setUploadDialogOpen(true)}
+                      onClick={() => {
+                        setRequireReceiptCategory(false);
+                        setSelectedReceiptCategory("");
+                        setSelectedDocType("lr_consignment");
+                        setUploadDialogOpen(true);
+                      }}
                       disabled={!matchedShipment}
                       data-testid="button-upload-documents"
                       size="sm"
@@ -1569,6 +1605,8 @@ export default function TripsPage() {
         if (!open) {
           setSelectedFile(null);
           setSelectedDocType("lr_consignment");
+          setSelectedReceiptCategory("");
+          setRequireReceiptCategory(false);
           stopCamera();
         }
       }}>
@@ -1589,7 +1627,16 @@ export default function TripsPage() {
           <div className="py-2 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="doc-type" className="text-sm">Document Type</Label>
-              <Select value={selectedDocType} onValueChange={setSelectedDocType}>
+              <Select
+                value={selectedDocType}
+                onValueChange={(value) => {
+                  setSelectedDocType(value);
+                  if (value !== "receipts") {
+                    setSelectedReceiptCategory("");
+                    setRequireReceiptCategory(false);
+                  }
+                }}
+              >
                 <SelectTrigger id="doc-type" data-testid="select-document-type">
                   <SelectValue placeholder="Select document type" />
                 </SelectTrigger>
@@ -1603,7 +1650,33 @@ export default function TripsPage() {
                   <SelectItem value="other">Other Document</SelectItem>
                 </SelectContent>
               </Select>
+              {selectedDocType === "receipts" && !requireReceiptCategory && (
+                <p className="text-xs text-muted-foreground">
+                  Receipts uploaded here are saved as Other Receipt.
+                </p>
+              )}
             </div>
+
+            {(requireReceiptCategory) && (
+              <div className="space-y-2">
+                <Label htmlFor="receipt-type" className="text-sm">Receipt Type</Label>
+                <Select
+                  value={selectedReceiptCategory || undefined}
+                  onValueChange={(value) => setSelectedReceiptCategory(value as ReceiptCategoryKey)}
+                >
+                  <SelectTrigger id="receipt-type" data-testid="select-receipt-type">
+                    <SelectValue placeholder="Select receipt type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RECEIPT_CATEGORIES.map((category) => (
+                      <SelectItem key={category.key} value={category.key}>
+                        {category.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Camera Mode */}
             {cameraMode ? (
@@ -1741,6 +1814,15 @@ export default function TripsPage() {
                     return;
                   }
 
+                  if (requireReceiptCategory && !selectedReceiptCategory) {
+                    toast({
+                      title: "Select Receipt Type",
+                      description: "Choose Fuel, Toll, Maintenance, or Other before uploading.",
+                      variant: "destructive"
+                    });
+                    return;
+                  }
+
                   if (!selectedFile) {
                     toast({
                       title: "No File Selected",
@@ -1751,11 +1833,11 @@ export default function TripsPage() {
                   }
 
                   uploadMutation.mutate({
-                    documentType: selectedDocType,
+                    documentType: resolveUploadDocumentType(),
                     file: selectedFile,
                   });
                 }}
-                disabled={uploadMutation.isPending || !selectedDocType || !selectedFile}
+                disabled={uploadMutation.isPending || !selectedDocType || !selectedFile || (requireReceiptCategory && !selectedReceiptCategory)}
                 data-testid="button-confirm-upload"
               >
                 {uploadMutation.isPending ? (

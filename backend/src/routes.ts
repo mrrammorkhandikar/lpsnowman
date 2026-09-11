@@ -4179,6 +4179,10 @@ export async function registerRoutes(
         "weighment_slip",
         "receipts",
         "receipt",
+        "fuel_receipt",
+        "toll_receipt",
+        "maintenance_receipt",
+        "other_receipt",
         "other",
       ]);
 
@@ -16293,9 +16297,16 @@ RESPOND IN THIS EXACT JSON FORMAT:
         "invoice",
         "receipts",
         "receipt",
+        "fuel_receipt",
+        "toll_receipt",
+        "maintenance_receipt",
+        "other_receipt",
         "other",
       ];
-      const normalizedType = documentType === "receipt" ? "receipts" : documentType;
+      const normalizedType =
+        documentType === "receipt" || documentType === "receipts"
+          ? "other_receipt"
+          : documentType;
       if (!validShipmentDocTypes.includes(normalizedType) && !validShipmentDocTypes.includes(documentType)) {
         return res.status(400).json({ error: "Invalid document type" });
       }

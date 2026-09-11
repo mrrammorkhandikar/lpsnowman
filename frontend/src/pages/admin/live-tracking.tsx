@@ -25,6 +25,7 @@ import { buildFullAddress } from "@/lib/address-utils";
 import { geocodeAddress } from "@/lib/intutrack-api";
 import { getTriptrackRouteVisualization } from "@/lib/triptrack-route";
 import { TriptrackRoutePolylineLayer, HaltFlagMarkers } from "@/components/map-trip-visual";
+import { RECEIPT_CATEGORIES, getReceiptsForCategory } from "@/lib/receipt-document-types";
 
 interface TrackedShipment {
   id: string;
@@ -1437,6 +1438,93 @@ export default function AdminLiveTrackingPage() {
                               </Button>
                             </div>
                           )}
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2 px-3 sm:px-6 pt-3 sm:pt-6">
+                    <CardTitle className="text-xs sm:text-sm">Receipts</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 px-3 sm:px-6">
+                    {RECEIPT_CATEGORIES.map((receiptItem) => {
+                      const receipts = getReceiptsForCategory(selectedShipment.documents || [], receiptItem.key);
+                      return (
+                        <div key={receiptItem.key} className="p-2 bg-muted/50 rounded-lg space-y-1.5" data-testid={`admin-receipt-${receiptItem.key}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Package className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground shrink-0" />
+                              <span className="text-xs sm:text-sm truncate">{receiptItem.label}</span>
+                            </div>
+                            {receipts.length === 0 ? (
+                              <Badge variant="outline" className="text-muted-foreground shrink-0 text-[10px] sm:text-xs">
+                                Not Uploaded
+                              </Badge>
+                            ) : receipts.every((doc) => doc.isVerified) ? (
+                              <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 shrink-0 text-[10px] sm:text-xs">
+                                <CheckCircle className="h-2.5 w-2.5 sm:h-3 sm:w-3 mr-1" />
+                                Approved
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-yellow-600 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700 shrink-0 text-[10px] sm:text-xs">
+                                <Clock className="h-2.5 w-2.5 sm:h-3 sm:w-3 mr-1" />
+                                {receipts.length} file{receipts.length === 1 ? "" : "s"}
+                              </Badge>
+                            )}
+                          </div>
+                          {receipts.map((doc, index) => (
+                            <div key={doc.id} className="flex items-center gap-2 pl-0 sm:pl-6 flex-wrap">
+                              <span className="text-[10px] sm:text-xs text-muted-foreground truncate max-w-[140px]">
+                                {doc.fileName || `File ${index + 1}`}
+                              </span>
+                              {doc.fileUrl && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 sm:h-8 text-[10px] sm:text-xs px-2 sm:px-3"
+                                  onClick={async () => {
+                                    try {
+                                      const response = await fetch(`/api/documents/presigned-url?path=${encodeURIComponent(doc.fileUrl!)}`, {
+                                        credentials: "include",
+                                      });
+                                      if (!response.ok) {
+                                        throw new Error(`Failed to get document URL: ${response.statusText}`);
+                                      }
+                                      const data = await response.json();
+                                      window.open(data.url, "_blank", "noopener,noreferrer");
+                                    } catch (error) {
+                                      console.error("Error opening document:", error);
+                                      toast({
+                                        title: "Error",
+                                        description: "Failed to open document. Please try again.",
+                                        variant: "destructive",
+                                      });
+                                    }
+                                  }}
+                                  data-testid={`button-view-receipt-${receiptItem.key}-${index}`}
+                                >
+                                  <Eye className="h-2.5 w-2.5 sm:h-3 sm:w-3 mr-1" />
+                                  View
+                                </Button>
+                              )}
+                              {doc.fileUrl && !doc.isVerified && (
+                                <Button
+                                  size="sm"
+                                  className="h-7 sm:h-8 text-[10px] sm:text-xs bg-green-600 text-white px-2 sm:px-3"
+                                  onClick={() => {
+                                    verifyDocumentMutation.mutate({ documentId: doc.id, isVerified: true });
+                                  }}
+                                  disabled={verifyDocumentMutation.isPending}
+                                  data-testid={`button-approve-receipt-${receiptItem.key}-${index}`}
+                                >
+                                  <CheckCircle className="h-2.5 w-2.5 sm:h-3 sm:w-3 mr-1" />
+                                  Approve
+                                </Button>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       );
                     })}

@@ -20,6 +20,7 @@ import { shipmentPayoutSummary } from "@/lib/finance-payout-utils";
 import { CarrierPayoutSummaryCard } from "@/components/finance/carrier-payout-summary-card";
 import { CarrierAdvancePaymentStatusButtons } from "@/components/finance/carrier-advance-payment-block";
 import { MyFleetPricingCard } from "@/components/finance/my-fleet-pricing-card";
+import { FinanceReceiptsCard } from "@/components/finance/receipts-card";
 
 interface FinanceShipment {
   id: string;
@@ -583,64 +584,7 @@ export default function FinanceDashboard() {
                   </CardContent>
                 </Card>
 
-                {selectedShipment.load?.pricingType === "my_fleet" && (
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <FileText className="h-4 w-4" /> Receipts
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      {[
-                        { key: "fuel_receipt", label: "Fuel Receipt" },
-                        { key: "toll_receipt", label: "Toll Receipt" },
-                        { key: "maintenance_receipt", label: "Maintenance Receipt" },
-                        { key: "other_receipt", label: "Other Receipt" },
-                      ].map((receiptItem) => {
-                        const receipt = selectedShipment.documents.find(d => d.documentType === receiptItem.key);
-                        const hasDocument = !!receipt?.fileUrl;
-                        const isVerified = receipt?.isVerified === true;
-                        return (
-                          <div
-                            key={receiptItem.key}
-                            className={`flex items-center justify-between p-2 bg-muted/50 rounded-lg ${isVerified ? "cursor-pointer hover-elevate" : ""}`}
-                            onClick={() => {
-                              if (isVerified && receipt?.fileUrl) {
-                                const url = getDocumentUrl(receipt.fileUrl);
-                                if (url) {
-                                  window.open(url, "_blank");
-                                }
-                              }
-                            }}
-                            data-testid={`finance-receipt-${receiptItem.key}`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <FileText className="h-4 w-4 text-muted-foreground" />
-                              <span className="text-sm">{receiptItem.label}</span>
-                            </div>
-                            <div>
-                              {isVerified ? (
-                                <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 cursor-pointer">
-                                  <CheckCircle className="h-3 w-3 mr-1" />
-                                  View
-                                </Badge>
-                              ) : hasDocument ? (
-                                <Badge variant="outline" className="text-yellow-600 dark:text-yellow-400 border-yellow-300 dark:border-yellow-700">
-                                  <Clock className="h-3 w-3 mr-1" />
-                                  Awaiting Approval
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="text-muted-foreground">
-                                  Not Uploaded
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </CardContent>
-                  </Card>
-                )}
+                <FinanceReceiptsCard documents={selectedShipment.documents || []} />
 
                 {selectedShipment.load?.pricingType !== "my_fleet" && (
                   <CarrierPayoutSummaryCard shipment={selectedShipment} />
@@ -901,6 +845,8 @@ export default function FinanceDashboard() {
                       })}
                     </CardContent>
                   </Card>
+
+                  <FinanceReceiptsCard documents={selectedShipment.documents || []} testIdPrefix="finance-receipt-mobile" />
 
                   <CarrierPayoutSummaryCard shipment={selectedShipment} />
 

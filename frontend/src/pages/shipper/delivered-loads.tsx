@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { CarrierRatingDialog } from "@/components/carrier-rating-dialog";
 import { getDocumentUrl } from "@/lib/document-utils";
+import { RECEIPT_CATEGORIES, getReceiptsForCategory } from "@/lib/receipt-document-types";
 import { format } from "date-fns";
 
 type ShipmentStage = "load_created" | "carrier_assigned" | "reached_pickup" | "loaded" | "in_transit" | "arrived_at_drop" | "delivered";
@@ -191,7 +192,8 @@ export default function DeliveredLoadsPage() {
   const selectedShipment = filteredShipments.find(s => s.id === selectedShipmentId) || filteredShipments[0] || null;
 
   function openDocumentViewer(docLabel: string, docKey: string) {
-    const doc = selectedShipment?.documents.find(d => d.documentType === docKey);
+    const receiptDocs = getReceiptsForCategory(selectedShipment?.documents || [], docKey);
+    const doc = receiptDocs[0] || selectedShipment?.documents.find(d => d.documentType === docKey);
     if (doc && doc.fileUrl) {
       setSelectedDocument({ type: docLabel, image: doc.fileUrl });
       setDocumentViewerOpen(true);
@@ -467,9 +469,10 @@ export default function DeliveredLoadsPage() {
                     <div>
                       <h3 className="font-semibold mb-3">Documents</h3>
                       <div className="space-y-2">
-                        {["lr_consignment", "eway_bill", "loading_photos", "pod"].map((docType) => {
-                          const doc = selectedShipment.documents.find(d => d.documentType === docType);
-                          const label = documentTypeToLabel[docType] || docType;
+                        {[...["lr_consignment", "eway_bill", "loading_photos", "pod"], ...RECEIPT_CATEGORIES.map((c) => c.key)].map((docType) => {
+                          const receiptDocs = getReceiptsForCategory(selectedShipment.documents, docType);
+                          const doc = receiptDocs[0] || selectedShipment.documents.find(d => d.documentType === docType);
+                          const label = RECEIPT_CATEGORIES.find((c) => c.key === docType)?.label || documentTypeToLabel[docType] || docType;
                           return (
                             <div key={docType} className="flex items-center justify-between p-2 rounded-md bg-muted/50">
                               <div className="flex items-center gap-2">

@@ -19,6 +19,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { getDocumentUrl } from "@/lib/document-utils";
 import { buildFullAddress } from "@/lib/address-utils";
+import { RECEIPT_CATEGORIES, getReceiptsForCategory } from "@/lib/receipt-document-types";
 import { geocodeAddress } from "@/lib/intutrack-api";
 import { getTriptrackRouteVisualization, type TriptrackPointInput } from "@/lib/triptrack-route";
 import { TriptrackRoutePolylineLayer, HaltFlagMarkers } from "@/components/map-trip-visual";
@@ -638,7 +639,8 @@ export default function TrackingPage() {
   }, [toast]);
 
   function openDocumentViewer(docLabel: string, docKey: string) {
-    const doc = selectedShipment?.documents.find(d => d.documentType === docKey);
+    const receiptDocs = getReceiptsForCategory(selectedShipment?.documents || [], docKey);
+    const doc = receiptDocs[0] || selectedShipment?.documents.find(d => d.documentType === docKey);
     if (doc && doc.fileUrl) {
       setSelectedDocument({ type: docLabel, image: doc.fileUrl });
       setDocumentViewerOpen(true);
@@ -927,10 +929,13 @@ export default function TrackingPage() {
                         { key: "eway_bill", label: "E-way Bill" },
                         { key: "loading_photos", label: "Loading Photos" },
                         { key: "pod", label: "Proof of Delivery (POD)" },
+                        ...RECEIPT_CATEGORIES.map((category) => ({ key: category.key, label: category.label })),
                       ].map((docItem) => {
-                        const doc = selectedShipment.documents.find(d => 
+                        const receiptDocs = getReceiptsForCategory(selectedShipment.documents, docItem.key);
+                        const doc = receiptDocs[0] || selectedShipment.documents.find(d => 
                           d.documentType === docItem.key
                         );
+                        const uploadedCount = receiptDocs.length;
                         return (
                           <div 
                             key={docItem.key} 
@@ -951,7 +956,9 @@ export default function TrackingPage() {
                               ) : doc ? (
                                 <Badge variant="secondary" className="text-xs">
                                   <ArrowRight className="h-3 w-3 mr-1" />
-                                  <span className="hidden sm:inline">Uploaded</span>
+                                  <span className="hidden sm:inline">
+                                    {uploadedCount > 1 ? `${uploadedCount} files` : "Uploaded"}
+                                  </span>
                                 </Badge>
                               ) : (
                                 <Badge variant="outline" className="text-muted-foreground text-xs">
