@@ -122,6 +122,7 @@ import { verifyEmailCheck, verifyGstin, verifyPanComprehensive } from "./surepas
 import { registerTripRoutes } from "./trips/trip-routes";
 import { registerFinanceReviewRoutes } from "./finance-review-routes";
 import { registerBc365Routes } from "./bc365/routes";
+import { registerBc365SalesRoutes } from "./bc365/sales-routes";
 import { registerIntutrackRoutes } from "./intutrack-routes";
 import { getCoordinatesFromAddress } from "./google-geocoding";
 import fs from "fs/promises";
@@ -935,6 +936,7 @@ export async function registerRoutes(
   registerTripRoutes(app);
   registerFinanceReviewRoutes(app);
   registerBc365Routes(app);
+  registerBc365SalesRoutes(app);
   registerIntutrackRoutes(app);
 
   // Note: Primary health check is at /health (registered in index.ts before all middleware)

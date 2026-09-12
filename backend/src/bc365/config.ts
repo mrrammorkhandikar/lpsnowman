@@ -33,6 +33,30 @@ export function getBc365Config(): Bc365Config {
   };
 }
 
+export function getBcSalesConfig(): Bc365Config {
+  const base = getBc365Config();
+  const environment = (process.env.BC_SALES_ENVIRONMENT || "ObjTestEnv").trim() || base.environment;
+  const companyId = (process.env.BC_SALES_COMPANY_ID || "").trim();
+  return {
+    ...base,
+    environment,
+    companyId,
+  };
+}
+
+export function bcSalesCompanyName(): string {
+  return (process.env.BC_SALES_COMPANY_NAME || "SnowmanTest").trim() || "SnowmanTest";
+}
+
+export function bcSalesItemNumber(): string {
+  return (process.env.BC_SALES_ITEM_NUMBER || "LP-FREIGHT").trim() || "LP-FREIGHT";
+}
+
+/** Optional SnowmanTest customer number to attach sales documents to. */
+export function bcSalesCustomerNumber(): string {
+  return (process.env.BC_SALES_CUSTOMER_NUMBER || "").trim();
+}
+
 export function bcApiRoot(config = getBc365Config()): string {
   return `${config.baseUrl}/${config.tenantId}/${encodeURIComponent(config.environment)}/api/v2.0`;
 }

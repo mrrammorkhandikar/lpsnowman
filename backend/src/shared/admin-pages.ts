@@ -20,6 +20,7 @@ export const ADMIN_PAGES = [
   { key: "carrier_verification", path: "/admin/verification", titleKey: "nav.verification" },
   { key: "document_review", path: "/admin/finance-review", titleKey: "nav.documentReview" },
   { key: "bc365_sync", path: "/admin/bc365-sync", titleKey: "nav.bc365Sync" },
+  { key: "bc365_sales", path: "/admin/bc365-sales", titleKey: "nav.bc365Sales" },
   { key: "reports", path: "/admin/reports", titleKey: "nav.reports" },
 ] as const;
 

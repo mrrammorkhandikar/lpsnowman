@@ -1,4 +1,4 @@
-import { bcApiRoot, bcLoadsApiRoot, getBc365Config, type Bc365Config } from "./config";
+import { bcApiRoot, bcLoadsApiRoot, getBc365Config, getBcSalesConfig, type Bc365Config } from "./config";
 
 type TokenState = {
   accessToken: string;
@@ -74,7 +74,53 @@ export type BcSalesOrder = {
   "@odata.etag"?: string;
 };
 
-type ODataList<T> = { value: T[] };
+export type BcSalesInvoice = {
+  id: string;
+  number?: string;
+  externalDocumentNumber?: string | null;
+  customerNumber?: string | null;
+  customerName?: string | null;
+  invoiceDate?: string | null;
+  "@odata.etag"?: string;
+};
+
+export type BcItem = {
+  id: string;
+  number?: string;
+  displayName?: string;
+  type?: string;
+  "@odata.etag"?: string;
+};
+
+export type BcSalesLine = {
+  id: string;
+  sequence?: number;
+  lineType?: string;
+  lineObjectNumber?: string | null;
+  description?: string | null;
+  quantity?: number;
+  unitPrice?: number;
+  "@odata.etag"?: string;
+};
+
+export type BcWorkflowCustomer = {
+  id: string;
+  number?: string;
+  name?: string;
+  genBusPostingGroup?: string;
+  customerPostingGroup?: string;
+  vatBusPostingGroup?: string;
+  "@odata.etag"?: string;
+};
+
+export type BcWorkflowItem = {
+  id: string;
+  number?: string;
+  genProdPostingGroup?: string;
+  vatProdPostingGroup?: string;
+  inventoryPostingGroup?: string;
+  "@odata.etag"?: string;
+};
 
 export class Bc365Client {
   private token: TokenState | null = null;
@@ -127,7 +173,7 @@ export class Bc365Client {
   async request<T>(
     method: string,
     urlOrPath: string,
-    options: { body?: unknown; etag?: string; absolute?: boolean } = {},
+    options: { body?: unknown; etag?: string; absolute?: boolean; timeoutMs?: number } = {},
   ): Promise<T> {
     const token = await this.getToken();
     const url = options.absolute || urlOrPath.startsWith("http")
@@ -143,11 +189,22 @@ export class Bc365Client {
     if (options.etag) {
       headers["If-Match"] = options.etag;
     }
-    const res = await fetch(url, {
-      method,
-      headers,
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    });
+    const timeoutMs = options.timeoutMs ?? 25_000;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers,
+        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      const name = error instanceof Error ? error.name : "";
+      if (name === "TimeoutError" || name === "AbortError") {
+        throw new Bc365Error(`BC 365 ${method} timed out after ${timeoutMs}ms: ${url}`, 408);
+      }
+      throw error;
+    }
     if (res.status === 204) {
       return undefined as T;
     }
@@ -161,11 +218,7 @@ export class Bc365Client {
       }
     }
     if (!res.ok) {
-      const message =
-        typeof payload === "object" && payload && "error" in payload
-          ? JSON.stringify((payload as { error: unknown }).error)
-          : `BC 365 ${method} ${url} failed (${res.status})`;
-      throw new Bc365Error(message, res.status, payload);
+      throw new Bc365Error(formatBcErrorPayload(payload, method, url, res.status), res.status, payload);
     }
     return payload as T;
   }
@@ -191,7 +244,7 @@ export class Bc365Client {
   }
 
   async ensureEnvironment(): Promise<string> {
-    const configuredName = getBc365Config().environment;
+    const configuredName = this.config.environment;
     const tryName = async (name: string) => {
       const previous = this.config.environment;
       this.config.environment = name;
@@ -242,6 +295,61 @@ export class Bc365Client {
   companyPath(companyId: string, suffix: string): string {
     const clean = suffix.startsWith("/") ? suffix : `/${suffix}`;
     return `/companies(${companyId})${clean}`;
+  }
+
+  private odataCompanyUrl(companyName: string, entityAndQuery: string): string {
+    const root = bcApiRoot(this.config).replace(/\/api\/v2\.0$/, "");
+    const name = companyName.replace(/'/g, "''");
+    const suffix = entityAndQuery.startsWith("/") ? entityAndQuery.slice(1) : entityAndQuery;
+    return `${root}/ODataV4/Company('${name}')/${suffix}`;
+  }
+
+  async listWorkflowCustomers(companyName: string): Promise<BcWorkflowCustomer[]> {
+    const qs = new URLSearchParams();
+    qs.set("$top", "200");
+    const data = await this.request<ODataList<BcWorkflowCustomer>>(
+      "GET",
+      this.odataCompanyUrl(companyName, `workflowCustomers?${qs.toString()}`),
+      { absolute: true },
+    );
+    return data.value || [];
+  }
+
+  async patchWorkflowCustomer(
+    companyName: string,
+    id: string,
+    body: Record<string, unknown>,
+    etag?: string,
+  ): Promise<BcWorkflowCustomer | void> {
+    return this.request<BcWorkflowCustomer | void>(
+      "PATCH",
+      this.odataCompanyUrl(companyName, `workflowCustomers(${id})`),
+      { body, etag: etag || "*", absolute: true },
+    );
+  }
+
+  async listWorkflowItems(companyName: string): Promise<BcWorkflowItem[]> {
+    const qs = new URLSearchParams();
+    qs.set("$top", "50");
+    const data = await this.request<ODataList<BcWorkflowItem>>(
+      "GET",
+      this.odataCompanyUrl(companyName, `workflowItems?${qs.toString()}`),
+      { absolute: true },
+    );
+    return data.value || [];
+  }
+
+  async patchWorkflowItem(
+    companyName: string,
+    id: string,
+    body: Record<string, unknown>,
+    etag?: string,
+  ): Promise<BcWorkflowItem | void> {
+    return this.request<BcWorkflowItem | void>(
+      "PATCH",
+      this.odataCompanyUrl(companyName, `workflowItems(${id})`),
+      { body, etag: etag || "*", absolute: true },
+    );
   }
 
   private loadCollectionUrl(companyId: string): string {
@@ -360,6 +468,18 @@ export class Bc365Client {
     );
   }
 
+  async listCountriesRegions(
+    companyId: string,
+  ): Promise<Array<{ id: string; code?: string; displayName?: string }>> {
+    const qs = new URLSearchParams();
+    qs.set("$top", "300");
+    const data = await this.request<ODataList<{ id: string; code?: string; displayName?: string }>>(
+      "GET",
+      this.companyPath(companyId, `/countriesRegions?${qs.toString()}`),
+    );
+    return data.value || [];
+  }
+
   async listCustomers(
     companyId: string,
     filter?: string,
@@ -384,11 +504,177 @@ export class Bc365Client {
       { body },
     );
   }
+
+  async listAccounts(
+    companyId: string,
+    filter?: string,
+  ): Promise<Array<{ id: string; number?: string; displayName?: string }>> {
+    const qs = new URLSearchParams();
+    qs.set("$top", "50");
+    if (filter) qs.set("$filter", filter);
+    const data = await this.request<ODataList<{ id: string; number?: string; displayName?: string }>>(
+      "GET",
+      this.companyPath(companyId, `/accounts?${qs.toString()}`),
+    );
+    return data.value || [];
+  }
+
+  async listItems(
+    companyId: string,
+    filter?: string,
+  ): Promise<BcItem[]> {
+    const qs = new URLSearchParams();
+    qs.set("$top", "200");
+    if (filter) qs.set("$filter", filter);
+    const data = await this.request<ODataList<BcItem>>(
+      "GET",
+      this.companyPath(companyId, `/items?${qs.toString()}`),
+    );
+    return data.value || [];
+  }
+
+  async createItem(companyId: string, body: Record<string, unknown>): Promise<BcItem> {
+    return this.request<BcItem>("POST", this.companyPath(companyId, "/items"), { body });
+  }
+
+  async listSalesOrderLines(companyId: string, orderId: string): Promise<BcSalesLine[]> {
+    const data = await this.request<ODataList<BcSalesLine>>(
+      "GET",
+      this.companyPath(companyId, `/salesOrders(${orderId})/salesOrderLines`),
+    );
+    return data.value || [];
+  }
+
+  async createSalesOrderLine(
+    companyId: string,
+    orderId: string,
+    body: Record<string, unknown>,
+  ): Promise<BcSalesLine> {
+    return this.request<BcSalesLine>(
+      "POST",
+      this.companyPath(companyId, `/salesOrders(${orderId})/salesOrderLines`),
+      { body },
+    );
+  }
+
+  async updateSalesOrderLine(
+    companyId: string,
+    orderId: string,
+    lineId: string,
+    body: Record<string, unknown>,
+    etag: string,
+  ): Promise<BcSalesLine | void> {
+    return this.request<BcSalesLine | void>(
+      "PATCH",
+      this.companyPath(companyId, `/salesOrders(${orderId})/salesOrderLines(${lineId})`),
+      { body, etag },
+    );
+  }
+
+  async listSalesInvoices(
+    companyId: string,
+    filter?: string,
+  ): Promise<BcSalesInvoice[]> {
+    const qs = new URLSearchParams();
+    qs.set("$top", "2000");
+    if (filter) qs.set("$filter", filter);
+    const data = await this.request<ODataList<BcSalesInvoice>>(
+      "GET",
+      this.companyPath(companyId, `/salesInvoices?${qs.toString()}`),
+    );
+    return data.value || [];
+  }
+
+  async createSalesInvoice(
+    companyId: string,
+    body: Record<string, unknown>,
+  ): Promise<BcSalesInvoice> {
+    return this.request<BcSalesInvoice>(
+      "POST",
+      this.companyPath(companyId, "/salesInvoices"),
+      { body },
+    );
+  }
+
+  async listSalesInvoiceLines(companyId: string, invoiceId: string): Promise<BcSalesLine[]> {
+    const data = await this.request<ODataList<BcSalesLine>>(
+      "GET",
+      this.companyPath(companyId, `/salesInvoices(${invoiceId})/salesInvoiceLines`),
+    );
+    return data.value || [];
+  }
+
+  async createSalesInvoiceLine(
+    companyId: string,
+    invoiceId: string,
+    body: Record<string, unknown>,
+  ): Promise<BcSalesLine> {
+    return this.request<BcSalesLine>(
+      "POST",
+      this.companyPath(companyId, `/salesInvoices(${invoiceId})/salesInvoiceLines`),
+      { body },
+    );
+  }
+
+  async updateSalesInvoiceLine(
+    companyId: string,
+    invoiceId: string,
+    lineId: string,
+    body: Record<string, unknown>,
+    etag: string,
+  ): Promise<BcSalesLine | void> {
+    return this.request<BcSalesLine | void>(
+      "PATCH",
+      this.companyPath(companyId, `/salesInvoices(${invoiceId})/salesInvoiceLines(${lineId})`),
+      { body, etag },
+    );
+  }
 }
 
 export const bc365Client = new Bc365Client();
+export const bc365SalesClient = new Bc365Client(getBcSalesConfig());
+
+function formatBcErrorPayload(payload: unknown, method: string, url: string, status: number): string {
+  if (payload && typeof payload === "object" && "error" in payload) {
+    const err = (payload as { error?: unknown }).error;
+    if (typeof err === "string") {
+      try {
+        const parsed = JSON.parse(err) as { message?: string };
+        if (parsed?.message) return parsed.message;
+      } catch {
+        return err;
+      }
+      return err;
+    }
+    if (err && typeof err === "object") {
+      const obj = err as { message?: string; code?: string };
+      if (typeof obj.message === "string") {
+        const inner = obj.message.trim();
+        if (inner.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(inner) as { message?: string };
+            if (parsed?.message) return parsed.message;
+          } catch {
+            return inner;
+          }
+        }
+        return inner;
+      }
+      if (obj.code) return `${obj.code} (${status})`;
+      try {
+        return JSON.stringify(err);
+      } catch {
+        // fall through
+      }
+    }
+  }
+  return `BC 365 ${method} ${url} failed (${status})`;
+}
 
 export function explainBc365Error(error: unknown): string {
+  if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+    return "Business Central did not respond in time. Try pushing one load, and confirm the Entra app is enabled in ObjTestEnv.";
+  }
   if (!(error instanceof Bc365Error)) {
     return error instanceof Error ? error.message : String(error);
   }
@@ -400,7 +686,13 @@ export function explainBc365Error(error: unknown): string {
     return "Azure login succeeded, but Business Central refused the app. In BC search Microsoft Entra Applications, add this Client ID, set Status to Enabled, grant D365 BUS FULL ACCESS, then Grant Consent. In Azure, admin-consent Dynamics 365 Business Central application permissions (API.ReadWrite.All).";
   }
   if (/NoEnvironment/i.test(blob)) {
-    return `Business Central environment "${getBc365Config().environment}" was not found on this tenant. Use the name from the admin URL (for this project: TestEnv).`;
+    return `Business Central environment was not found. Check BC_SALES_ENVIRONMENT (ObjTestEnv) and BC_ENVIRONMENT (TestEnv).`;
+  }
+  if (/Posting Group|GST|tax area|Gen\. Bus|Customer Posting/i.test(blob)) {
+    return `${error.message} Set Gen. Bus. Posting Group and Customer Posting Group on customer LOADPILOT in SnowmanTest (ObjTestEnv). Those codes must already exist under Gen. Business Posting Groups.`;
+  }
+  if (error.status === 408 || /timed out/i.test(error.message)) {
+    return "Business Central timed out. Enable the Entra application in ObjTestEnv with D365 BUS FULL ACCESS, then push one load.";
   }
   if (/current permissions prevented the action|TableData 50100|LP Load/i.test(blob) && /Insert|Modify|Delete/i.test(blob)) {
     return "Business Central blocked writing LoadPilot Loads. In TestEnv open Microsoft Entra Applications, disable the LoadPilot card, add permission set LP Loads, then enable the card again. D365 BUS FULL ACCESS does not include this custom table.";

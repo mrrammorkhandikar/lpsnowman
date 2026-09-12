@@ -137,6 +137,7 @@ const adminItems: (NavItem | NavSection)[] = [
   { titleKey: "nav.verification", url: "/admin/verification", icon: Shield, pageKey: "carrier_verification" },
   { titleKey: "nav.documentReview", url: "/admin/finance-review", icon: FileText, pageKey: "document_review" },
   { titleKey: "nav.bc365Sync", url: "/admin/bc365-sync", icon: Landmark, pageKey: "bc365_sync" },
+  { titleKey: "nav.bc365Sales", url: "/admin/bc365-sales", icon: Landmark, pageKey: "bc365_sales" },
   { titleKey: "nav.reports", url: "/admin/reports", icon: BarChart3, pageKey: "reports" },
 ];
 

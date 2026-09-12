@@ -2173,3 +2173,20 @@ export const bcSyncRuns = pgTable("bc_sync_runs", {
 export type BcSyncSettings = typeof bcSyncSettings.$inferSelect;
 export type BcLoadMap = typeof bcLoadMaps.$inferSelect;
 export type BcSyncRun = typeof bcSyncRuns.$inferSelect;
+
+export const bcSalesMaps = pgTable("bc_sales_maps", {
+  loadId: varchar("load_id").primaryKey().references(() => loads.id),
+  bcCustomerId: text("bc_customer_id"),
+  bcCustomerNumber: text("bc_customer_number"),
+  bcOrderId: text("bc_order_id"),
+  bcOrderNumber: text("bc_order_number"),
+  bcInvoiceId: text("bc_invoice_id"),
+  bcInvoiceNumber: text("bc_invoice_number"),
+  memoId: text("memo_id"),
+  lastPushedAt: timestamp("last_pushed_at"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type BcSalesMap = typeof bcSalesMaps.$inferSelect;
